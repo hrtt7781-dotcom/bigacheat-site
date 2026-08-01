@@ -59,6 +59,12 @@ def db() -> sqlite3.Connection:
     except sqlite3.OperationalError:
         pass
 
+    try:
+        connection.execute("ALTER TABLE users ADD COLUMN daily_streak INTEGER NOT NULL DEFAULT 0")
+        connection.commit()
+    except sqlite3.OperationalError:
+        pass
+
     connection.execute(
         """CREATE TABLE IF NOT EXISTS sessions (
             token_hash TEXT PRIMARY KEY,
@@ -229,7 +235,7 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
             
     balance_pill = f'<span class="balance-pill">Bakiye: {balance_val:.2f} TL</span>' if user else ""
     account = (
-        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
+        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d; margin-right: 8px;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
         if user
         else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
     )
@@ -404,24 +410,8 @@ class Handler(BaseHTTPRequestHandler):
         is_premium = self.is_user_premium(user[1]) if user else False
         csrf_tok = csrf_for(self)
 
-        # Check and award daily login reward (10.00 TL)
-        if user:
-            user_id = user[1]
-            try:
-                with db() as connection:
-                    row = connection.execute("SELECT last_daily_claim FROM users WHERE id=?", (user_id,)).fetchone()
-                    if row:
-                        last_daily_claim = row["last_daily_claim"]
-                        current_time = int(time.time())
-                        last_date_str = time.strftime("%Y-%m-%d", time.localtime(last_daily_claim))
-                        current_date_str = time.strftime("%Y-%m-%d", time.localtime(current_time))
-                        if last_date_str != current_date_str:
-                            connection.execute("UPDATE users SET balance=balance+10.00, last_daily_claim=? WHERE id=?", (current_time, user_id))
-                            connection.commit()
-                            message = "Harika! Bugünün günlük giriş ödülü olarak 10.00 TL bakiyene eklendi! 🎁"
-                            message_type = "success"
-            except Exception:
-                pass
+        # Daily logic removed here (now handles in /daily page and /daily/claim POST)
+        pass
         if path == "/":
             status = "Hesabınla giriş yaparak sürümü indirebilirsin." if not user else "Hesabın hazır. Güncel sürümü aşağıdan indirebilirsin."
             body = f"""<section class="hero"><div class="eyebrow">CS2 İÇİN ÖZEL SÜRÜM ALANI</div><h1>CS2 için Biga Cheat<span>.</span></h1><p class="lead">Temiz, hızlı ve tek yerden yönetilen sürüm ve proje alanı.</p>
@@ -577,6 +567,90 @@ class Handler(BaseHTTPRequestHandler):
             </section>
             """
             self.send_html(page("Bakiye Yükle", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/daily":
+            if not user:
+                self.redirect("/login")
+                return
+            with db() as connection:
+                row = connection.execute("SELECT daily_streak, last_daily_claim FROM users WHERE id=?", (user[1],)).fetchone()
+            daily_streak = row["daily_streak"] if row else 0
+            last_daily_claim = row["last_daily_claim"] if row else 0
+            
+            import datetime
+            def is_today(t: int) -> bool:
+                return datetime.date.fromtimestamp(t) == datetime.date.today()
+            def is_yesterday(t: int) -> bool:
+                return (datetime.date.today() - datetime.date.fromtimestamp(t)).days == 1
+                
+            claimed_today = is_today(last_daily_claim)
+            
+            if claimed_today:
+                active_day = ((daily_streak - 1) % 7) + 1
+            else:
+                if is_yesterday(last_daily_claim) or last_daily_claim == 0:
+                    active_day = (daily_streak % 7) + 1
+                else:
+                    active_day = 1
+            
+            rewards = {1: 10.0, 2: 15.0, 3: 20.0, 4: 25.0, 5: 30.0, 6: 35.0, 7: 50.0}
+            
+            cards = ""
+            for day in range(1, 8):
+                amt = rewards[day]
+                if day < active_day or (day == active_day and claimed_today):
+                    status_class = "claimed"
+                    status_lbl = "Alındı ✓"
+                elif day == active_day and not claimed_today:
+                    status_class = "active"
+                    status_lbl = "Kazan!"
+                else:
+                    status_class = ""
+                    status_lbl = f"Gün {day}"
+                    
+                cards += f"""
+                <div class="streak-card {status_class}">
+                    <h3>{status_lbl}</h3>
+                    <div class="amount">{amt:.0f} TL</div>
+                </div>
+                """
+            
+            claim_btn = ""
+            if claimed_today:
+                claim_btn = '<button class="button ghost wide" disabled style="background: #ffffff04; border-color: #ffffff0a; width: 100%;">Bugünün Ödülü Alındı</button><p class="muted" style="font-size:13px; text-align:center; margin-top:10px;">Yarın yeni ödül için tekrar gel kanka!</p>'
+            else:
+                next_amt = rewards[active_day]
+                claim_btn = f"""
+                <form method="post" action="/daily/claim" class="form">
+                    <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+                    <button class="button primary wide" type="submit" style="font-size: 16px; padding: 15px; box-shadow: 0 10px 30px #216fe044; width: 100%;">{next_amt:.0f} TL Ödülü Al</button>
+                </form>
+                """
+                
+            body = f"""
+            <section class="auth-card upload-card" style="margin-top: 65px; width: min(650px, calc(100% - 40px));">
+                <div class="eyebrow">DAILY STREAK REWARDS</div>
+                <h1>Günlük Ödül</h1>
+                <p class="lead" style="font-size: 15px; margin: 10px 0 20px;">Sitede aktif kalarak her gün daha fazla bakiye kazan! 7 gün boyunca kesintisiz giriş yap, son gün 50 TL büyük ödülü kap.</p>
+                
+                <div class="streak-grid">
+                    {cards}
+                </div>
+                
+                <div style="background: #ffffff04; border: 1px solid var(--line); padding: 18px; border-radius: 12px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="font-size: 12px; color: var(--muted); display: block;">Mevcut Seriniz</span>
+                        <strong style="font-size: 18px; color: #65d9ff;">{daily_streak} Gün Kesintisiz</strong>
+                    </div>
+                    <div>
+                        <span style="font-size: 12px; color: var(--muted); display: block;">Toplam Seri Kazanımı</span>
+                        <strong style="font-size: 18px; color: #00ff88;">En Çok 50 TL/Gün</strong>
+                    </div>
+                </div>
+                
+                {claim_btn}
+            </section>
+            """
+            self.send_html(page("Günlük Ödül", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
         elif path == "/admin/login":
             fields = '<label>Yönetici adı<input name="username" autocomplete="username" required></label><label>Yönetici şifresi<input name="password" type="password" autocomplete="current-password" required></label>'
             self.send_html(form_page("Yönetici girişi", "/admin/login", "Panele gir", fields, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
@@ -1023,6 +1097,47 @@ class Handler(BaseHTTPRequestHandler):
                     connection.execute("UPDATE users SET balance=balance+? WHERE id=?", (amount_val, user_id))
                     log_event(f"[BAKİYE] Admin '{user_row['username']}' kullanıcısına {amount_val:.2f} TL bakiye ekledi.")
             self.redirect_admin("/admin?msg=Bakiye+guncellendi&msg_type=success")
+        elif path == "/daily/claim":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+                
+            import datetime
+            def is_today(t: int) -> bool:
+                return datetime.date.fromtimestamp(t) == datetime.date.today()
+            def is_yesterday(t: int) -> bool:
+                return (datetime.date.today() - datetime.date.fromtimestamp(t)).days == 1
+                
+            with db() as connection:
+                row = connection.execute("SELECT daily_streak, last_daily_claim FROM users WHERE id=?", (current[1],)).fetchone()
+                if not row:
+                    self.redirect("/daily?msg=Kullanici+bulunamadi&msg_type=error")
+                    return
+                daily_streak = row["daily_streak"]
+                last_daily_claim = row["last_daily_claim"]
+                
+                if is_today(last_daily_claim):
+                    self.redirect("/daily?msg=Bugunun+odulunu+zaten+aldiniz&msg_type=error")
+                    return
+                    
+                if is_yesterday(last_daily_claim) or last_daily_claim == 0:
+                    new_streak = daily_streak + 1
+                else:
+                    new_streak = 1
+                    
+                rewards = {1: 10.0, 2: 15.0, 3: 20.0, 4: 25.0, 5: 30.0, 6: 35.0, 7: 50.0}
+                active_day = ((new_streak - 1) % 7) + 1
+                reward_amt = rewards[active_day]
+                
+                current_time = int(time.time())
+                connection.execute("UPDATE users SET balance=balance+?, daily_streak=?, last_daily_claim=? WHERE id=?", (reward_amt, new_streak, current_time, current[1]))
+                connection.commit()
+                
+                log_event(f"[GÜNLÜK] '{username}' kullanıcısı Gün {active_day} günlük ödülünü aldı: {reward_amt:.2f} TL. (Yeni Seri: {new_streak})")
+                self.redirect(f"/daily?msg=Tebrikler!+{reward_amt:.0f}+TL+bakiye+hesabiniza+eklendi.&msg_type=success")
         else:
             self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 404)
 
