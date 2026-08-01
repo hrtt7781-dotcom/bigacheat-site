@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import html
 import os
+import random
 import re
 import secrets
 import sqlite3
@@ -28,6 +29,42 @@ ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = "yunustat14"
 ADMIN_TTL = 60 * 60 * 12
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,24}$")
+FREE_SPIN_COOLDOWN = 60 * 60 * 4  # 4 saat
+
+WHEELS = {
+    "ucretsiz": {
+        "name": "\u00dccretsiz \u00c7ark",
+        "cost": 0,
+        "icon": "\U0001f3b0",
+        "border": "#4ade80",
+        "rewards": [1, 2, 3, 5, 7, 10, 15, 25],
+        "weights": [30, 25, 18, 12, 7, 4, 2.5, 1.5],
+    },
+    "bronz": {
+        "name": "Bronz \u00c7ark",
+        "cost": 25,
+        "icon": "\U0001f949",
+        "border": "#cd7f32",
+        "rewards": [5, 10, 15, 25, 40, 60, 85, 125],
+        "weights": [30, 25, 18, 12, 7, 4, 2.5, 1.5],
+    },
+    "gumus": {
+        "name": "G\u00fcm\u00fc\u015f \u00c7ark",
+        "cost": 50,
+        "icon": "\U0001f948",
+        "border": "#c0c0c0",
+        "rewards": [10, 20, 35, 55, 80, 120, 175, 275],
+        "weights": [30, 25, 18, 12, 7, 4, 2.5, 1.5],
+    },
+    "altin": {
+        "name": "Alt\u0131n \u00c7ark",
+        "cost": 100,
+        "icon": "\U0001f947",
+        "border": "#ffd700",
+        "rewards": [25, 50, 80, 120, 175, 275, 500, 1000],
+        "weights": [30, 25, 18, 12, 7, 4, 2.5, 1.5],
+    },
+}
 
 
 @contextmanager
@@ -64,6 +101,12 @@ def db():
 
         try:
             connection.execute("ALTER TABLE users ADD COLUMN daily_streak INTEGER NOT NULL DEFAULT 0")
+            connection.commit()
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            connection.execute("ALTER TABLE users ADD COLUMN last_free_spin INTEGER NOT NULL DEFAULT 0")
             connection.commit()
         except sqlite3.OperationalError:
             pass
@@ -240,7 +283,7 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
             
     balance_pill = f'<span class="balance-pill">Bakiye: {balance_val:.2f} TL</span>' if user else ""
     account = (
-        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d; margin-right: 8px;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
+        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
         if user
         else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
     )
@@ -702,6 +745,117 @@ class Handler(BaseHTTPRequestHandler):
             </section>
             """
             self.send_html(page("Günlük Ödül", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/wheel":
+            if not user:
+                self.redirect("/login")
+                return
+            won = query.get("won", [""])[0]
+            won_wheel = query.get("wh", [""])[0]
+            won_seg = query.get("seg", [""])[0]
+
+            with db() as connection:
+                urow = connection.execute("SELECT balance, last_free_spin FROM users WHERE id=?", (user[1],)).fetchone()
+            user_balance = float(urow["balance"]) if urow else 0.0
+            last_free = urow["last_free_spin"] if urow else 0
+            free_available = (int(time.time()) - last_free) >= FREE_SPIN_COOLDOWN
+            free_remaining = max(0, FREE_SPIN_COOLDOWN - (int(time.time()) - last_free))
+            free_h = free_remaining // 3600
+            free_m = (free_remaining % 3600) // 60
+
+            seg_colors = ['#ff6b6b','#ffd93d','#6bcb77','#4d96ff','#ff8c42','#c084fc','#22d3ee','#f472b6']
+
+            wheel_cards = ""
+            wheel_order = ["ucretsiz", "bronz", "gumus", "altin"]
+            for wkey in wheel_order:
+                w = WHEELS[wkey]
+                cost_lbl = "Ücretsiz" if w["cost"] == 0 else f"{w['cost']} TL"
+                disabled = ""
+                btn_text = f"Çevir ({cost_lbl})"
+                if wkey == "ucretsiz" and not free_available:
+                    disabled = "disabled"
+                    btn_text = f"Bekle ({free_h}s {free_m}dk)"
+                elif wkey != "ucretsiz" and user_balance < w["cost"]:
+                    disabled = "disabled"
+                    btn_text = f"Yetersiz Bakiye ({cost_lbl})"
+
+                reward_tags = "".join(f'<span class="wheel-reward-tag" style="border-color:{seg_colors[i]}44;color:{seg_colors[i]}">{r} TL</span>' for i, r in enumerate(w["rewards"]))
+
+                wheel_cards += f"""
+                <div class="wheel-option-card" style="border-color: {w['border']}44;">
+                    <div class="wheel-option-header">
+                        <span style="font-size:32px;">{w['icon']}</span>
+                        <h2>{w['name']}</h2>
+                        <span class="wheel-cost" style="color:{w['border']};">{cost_lbl}</span>
+                    </div>
+                    <div class="wheel-rewards-grid">{reward_tags}</div>
+                    <form method="post" action="/wheel/spin">
+                        <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+                        <input type="hidden" name="wheel" value="{wkey}">
+                        <button class="button primary wide" type="submit" {disabled} style="border-color:{w['border']};background:{w['border']}22;color:{w['border']};">{btn_text}</button>
+                    </form>
+                </div>
+                """
+
+            # Build win overlay if won param exists
+            win_overlay = ""
+            if won and won_wheel and won_seg:
+                try:
+                    won_val = float(won)
+                    seg_idx = int(won_seg)
+                    wdata = WHEELS.get(won_wheel, WHEELS["ucretsiz"])
+                    # Calculate rotation: each segment = 45deg, spin multiple full rotations + land on segment
+                    target_angle = 360 * 5 + (360 - seg_idx * 45 - 22.5)
+                    segments_html = ""
+                    for i, r in enumerate(wdata["rewards"]):
+                        segments_html += f'<div class="wseg" style="--i:{i};background:{seg_colors[i]};">{r}</div>'
+                    win_overlay = f"""
+                    <div class="wheel-overlay" id="wheelOverlay">
+                        <div class="wheel-overlay-inner">
+                            <h2 style="color:#ffd700;margin-bottom:15px;">🎉 {wdata['name']}</h2>
+                            <div class="wheel-container">
+                                <div class="wheel-pointer">▼</div>
+                                <div class="wheel-disc" id="wheelDisc" style="--target:{target_angle}deg;">
+                                    {segments_html}
+                                </div>
+                            </div>
+                            <div class="wheel-result" id="wheelResult" style="display:none;">
+                                <h3>🎉 Tebrikler!</h3>
+                                <div class="won-amount">{won_val:.0f} TL</div>
+                                <p class="muted">Bakiyenize eklendi!</p>
+                            </div>
+                            <button class="button ghost" onclick="document.getElementById('wheelOverlay').style.display='none'" id="closeBtn" style="display:none;margin-top:15px;">Kapat</button>
+                        </div>
+                    </div>
+                    <script>
+                    (function(){{ 
+                        const disc=document.getElementById('wheelDisc');
+                        const result=document.getElementById('wheelResult');
+                        const closeBtn=document.getElementById('closeBtn');
+                        setTimeout(()=>{{ disc.classList.add('spinning'); }}, 100);
+                        setTimeout(()=>{{ result.style.display='block'; closeBtn.style.display='inline-block'; 
+                            try {{ const A=window.AudioContext||window.webkitAudioContext; const c=new A();
+                            const o1=c.createOscillator(); const g1=c.createGain(); o1.type='sine'; o1.frequency.setValueAtTime(523.25,c.currentTime); g1.gain.setValueAtTime(0.08,c.currentTime); g1.gain.exponentialRampToValueAtTime(0.01,c.currentTime+0.1); o1.connect(g1); g1.connect(c.destination); o1.start(); o1.stop(c.currentTime+0.1);
+                            setTimeout(()=>{{ const o2=c.createOscillator(); const g2=c.createGain(); o2.type='sine'; o2.frequency.setValueAtTime(659.25,c.currentTime); g2.gain.setValueAtTime(0.08,c.currentTime); g2.gain.exponentialRampToValueAtTime(0.01,c.currentTime+0.15); o2.connect(g2); g2.connect(c.destination); o2.start(); o2.stop(c.currentTime+0.15); }}, 85);
+                            setTimeout(()=>{{ const o3=c.createOscillator(); const g3=c.createGain(); o3.type='sine'; o3.frequency.setValueAtTime(783.99,c.currentTime); g3.gain.setValueAtTime(0.12,c.currentTime); g3.gain.exponentialRampToValueAtTime(0.01,c.currentTime+0.3); o3.connect(g3); g3.connect(c.destination); o3.start(); o3.stop(c.currentTime+0.3); }}, 170);
+                            }} catch(e){{}} }}, 4200);
+                    }})();
+                    </script>
+                    """
+                except (ValueError, KeyError):
+                    pass
+
+            body = f"""
+            <section class="auth-card upload-card" style="margin-top: 65px; width: min(900px, calc(100% - 40px));">
+                <div class="eyebrow">🎰 WHEEL OF FORTUNE</div>
+                <h1>Çark Çevir</h1>
+                <p class="lead" style="font-size: 15px; margin: 10px 0 20px;">Şansını dene! Ücretsiz çarkı 4 saatte bir çevir, ya da bakiyenle premium çarklardan büyük ödüller kazan.</p>
+                <div class="wheel-options-grid">
+                    {wheel_cards}
+                </div>
+            </section>
+            {win_overlay}
+            """
+            self.send_html(page("Çark Çevir", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
         elif path == "/admin/login":
             fields = '<label>Yönetici adı<input name="username" autocomplete="username" required></label><label>Yönetici şifresi<input name="password" type="password" autocomplete="current-password" required></label>'
             self.send_html(form_page("Yönetici girişi", "/admin/login", "Panele gir", fields, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
@@ -1191,12 +1345,56 @@ class Handler(BaseHTTPRequestHandler):
                 
                 log_event(f"[GÜNLÜK] '{username}' kullanıcısı Gün {active_day} günlük ödülünü aldı: {reward_amt:.2f} TL. (Yeni Seri: {new_streak})")
                 self.redirect(f"/daily?msg=Tebrikler!+{reward_amt:.0f}+TL+bakiye+hesabiniza+eklendi.&msg_type=success")
+        elif path == "/wheel/spin":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.redirect("/wheel?msg=CSRF+hatasi&msg_type=error")
+                return
+            wheel_key = fields.get("wheel", "")
+            if wheel_key not in WHEELS:
+                self.redirect("/wheel?msg=Gecersiz+cark&msg_type=error")
+                return
+            w = WHEELS[wheel_key]
+            import random
+            with db() as connection:
+                urow = connection.execute("SELECT balance, last_free_spin FROM users WHERE id=?", (current[1],)).fetchone()
+                if not urow:
+                    self.redirect("/wheel?msg=Kullanici+bulunamadi&msg_type=error")
+                    return
+                balance = float(urow["balance"])
+                last_free = urow["last_free_spin"]
+                now = int(time.time())
+
+                if wheel_key == "ucretsiz":
+                    if (now - last_free) < FREE_SPIN_COOLDOWN:
+                        self.redirect("/wheel?msg=Ucretsiz+cark+icin+beklemelisiniz&msg_type=error")
+                        return
+                else:
+                    if balance < w["cost"]:
+                        self.redirect("/wheel?msg=Yetersiz+bakiye&msg_type=error")
+                        return
+
+                # Weighted random selection
+                seg_idx = random.choices(range(8), weights=w["weights"], k=1)[0]
+                reward = w["rewards"][seg_idx]
+
+                if wheel_key == "ucretsiz":
+                    connection.execute("UPDATE users SET balance=balance+?, last_free_spin=? WHERE id=?", (reward, now, current[1]))
+                else:
+                    net = reward - w["cost"]
+                    connection.execute("UPDATE users SET balance=balance+? WHERE id=?", (net, current[1]))
+                connection.commit()
+                log_event(f"[ÇARK] '{username}' {w['name']} çevirdi → {reward} TL kazandı (Segment {seg_idx+1})")
+            self.redirect(f"/wheel?won={reward}&wh={wheel_key}&seg={seg_idx}")
         else:
             self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 404)
 
 
 def main() -> None:
-    db().close()
+    with db():
+        pass
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8080"))
     print(f"Biga Cheat site listening on http://127.0.0.1:{port}")
