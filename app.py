@@ -170,6 +170,10 @@ def db():
             )
         connection.commit()
         yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
 
