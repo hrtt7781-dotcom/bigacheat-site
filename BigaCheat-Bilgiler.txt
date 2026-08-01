@@ -1,0 +1,27 @@
+==================================================
+              BIGACHEAT WEB SITE BILGILERI
+==================================================
+
+[ CANLI SITE LINKLERI ]
+--------------------------------------------------
+* Ana Sayfa: https://biga-cheat-site.onrender.com
+* Admin Panel Giris: https://biga-cheat-site.onrender.com/admin/login
+
+[ YONETICI (ADMIN) GIRIS BILGILERI ]
+--------------------------------------------------
+* Kullanici Adi: admin  (veya Admin)
+* Sifre: yunustat14
+
+[ GITHUB REPOSU ]
+--------------------------------------------------
+* URL: https://github.com/hrtt7781-dotcom/bigacheat-site.git
+* Yerel Klasor: C:\Users\EMİR YUNUS\Desktop\BigaCheat-Site
+
+[ RENDER DEPLOY KONTROL ]
+--------------------------------------------------
+* Render Dashboard: https://dashboard.render.com
+* Web Service Sayfasi: https://dashboard.render.com/web/srv-d9kucqvqj5pc73e385ng
+
+==================================================
+Bu dosya Antigravity yardimiyla 01.08.2026 tarihinde olusturulmustur.
+==================================================
