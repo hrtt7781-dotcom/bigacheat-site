@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: biga-cheat-site
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: APP_SECRET
+        generateValue: true
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: COOKIE_SECURE
+        value: "1"
+    healthCheckPath: /
+    disk:
+      name: biga-cheat-data
+      mountPath: /data
+      sizeGB: 1
+

@@ -1,0 +1,953 @@
+from __future__ import annotations
+
+import hashlib
+import hmac
+import html
+import os
+import re
+import secrets
+import sqlite3
+import time
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+
+ROOT = Path(__file__).resolve().parent
+DATA_DIR = Path("/data") if Path("/data").is_dir() else ROOT
+DB_PATH = DATA_DIR / "data.sqlite3"
+DOWNLOAD_PATH = ROOT / "downloads" / "Biga Cheat-Cs2-Modified.exe"
+PROJECTS_PATH = DATA_DIR / "projects"
+APP_SECRET = os.environ.get("APP_SECRET", "change-this-secret-before-deploying").encode()
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0") == "1"
+SESSION_TTL = 60 * 60 * 24 * 14
+MAX_PROJECT_SIZE = 25 * 1024 * 1024
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "yunustat14")
+ADMIN_TTL = 60 * 60 * 12
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,24}$")
+
+
+def db() -> sqlite3.Connection:
+    connection = sqlite3.connect(DB_PATH)
+    connection.row_factory = sqlite3.Row
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            password_hash TEXT NOT NULL,
+            is_premium INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+        )"""
+    )
+    try:
+        connection.execute("ALTER TABLE users ADD COLUMN is_premium INTEGER NOT NULL DEFAULT 0")
+        connection.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS sessions (
+            token_hash TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )"""
+    )
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            stored_path TEXT NOT NULL,
+            size INTEGER NOT NULL,
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )"""
+    )
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS updates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            tag TEXT NOT NULL DEFAULT 'GÜNCELLEME',
+            created_at INTEGER NOT NULL
+        )"""
+    )
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            code TEXT NOT NULL,
+            amount TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'BEKLEMEDE',
+            created_at INTEGER NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )"""
+    )
+    connection.execute(
+        """CREATE TABLE IF NOT EXISTS logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )"""
+    )
+    if connection.execute("SELECT COUNT(*) FROM updates").fetchone()[0] == 0:
+        connection.execute(
+            "INSERT INTO updates(title, body, tag, created_at) VALUES(?,?,?,?)",
+            (
+                "Biga Cheat başlangıç sürümü",
+                "CS2 için yeni sürüm alanı, güvenli indirme ve topluluk projeleri yayında.",
+                "YAYIN",
+                int(time.time()),
+            ),
+        )
+    connection.commit()
+    return connection
+
+
+def log_event(event: str) -> None:
+    with db() as connection:
+        connection.execute("INSERT INTO logs(event, created_at) VALUES(?,?)", (event, int(time.time())))
+
+
+
+def password_hash(password: str, salt: bytes | None = None) -> str:
+    salt = salt or secrets.token_bytes(16)
+    derived = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
+    return f"scrypt${salt.hex()}${derived.hex()}"
+
+
+def password_matches(password: str, stored: str) -> bool:
+    try:
+        method, salt_hex, digest_hex = stored.split("$", 2)
+        if method != "scrypt":
+            return False
+        candidate = password_hash(password, bytes.fromhex(salt_hex)).split("$", 2)[2]
+        return hmac.compare_digest(candidate, digest_hex)
+    except (ValueError, TypeError):
+        return False
+
+
+def token_digest(token: str) -> str:
+    return hmac.new(APP_SECRET, token.encode(), hashlib.sha256).hexdigest()
+
+
+def admin_cookie_value() -> str:
+    expires = int(time.time()) + ADMIN_TTL
+    nonce = secrets.token_urlsafe(24)
+    payload = f"{ADMIN_USERNAME}:{expires}:{nonce}"
+    signature = hmac.new(APP_SECRET, ("admin:" + payload).encode(), hashlib.sha256).hexdigest()
+    return f"{payload}:{signature}"
+
+
+def is_admin_cookie(value: str | None) -> bool:
+    if not value:
+        return False
+    parts = value.split(":", 3)
+    if len(parts) != 4:
+        return False
+    username, expires, nonce, signature = parts
+    if username != ADMIN_USERNAME or not nonce:
+        return False
+    try:
+        if int(expires) < int(time.time()):
+            return False
+    except ValueError:
+        return False
+    payload = f"{username}:{expires}:{nonce}"
+    expected = hmac.new(APP_SECRET, ("admin:" + payload).encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
+
+
+def esc(value: str) -> str:
+    return html.escape(value, quote=True)
+
+
+def parse_multipart(body: bytes, content_type: str) -> dict[str, dict[str, object]]:
+    marker = "boundary="
+    if marker not in content_type:
+        return {}
+    boundary = content_type.split(marker, 1)[1].split(";", 1)[0].strip().strip('"').encode()
+    result: dict[str, dict[str, object]] = {}
+    for raw_part in body.split(b"--" + boundary):
+        part = raw_part.strip(b"\r\n")
+        if not part or part == b"--":
+            continue
+        if part.endswith(b"--"):
+            part = part[:-2].rstrip(b"\r\n")
+        header_blob, separator, data = part.partition(b"\r\n\r\n")
+        if not separator:
+            continue
+        headers = header_blob.decode("utf-8", "replace").split("\r\n")
+        disposition = next((h for h in headers if h.lower().startswith("content-disposition:")), "")
+        name_match = re.search(r'name="([^"]+)"', disposition)
+        if not name_match:
+            continue
+        filename_match = re.search(r'filename="([^"]*)"', disposition)
+        result[name_match.group(1)] = {"filename": filename_match.group(1) if filename_match else "", "data": data.rstrip(b"\r\n")}
+    return result
+
+
+def human_size(size: int) -> str:
+    if size >= 1024 * 1024:
+        return f"{size / (1024 * 1024):.2f} MB"
+    return f"{max(1, size // 1024)} KB"
+
+
+def format_date(timestamp: int) -> str:
+    return time.strftime("%d.%m.%Y", time.localtime(timestamp))
+
+
+def page(title: str, body: str, user: str | None = None, message: str = "", message_type: str = "", is_premium: bool = False, csrf_token: str = "") -> str:
+    premium_badge = ' <span class="premium-badge">PREMIUM</span>' if is_premium else ""
+    csrf_input = f'<input type="hidden" name="csrf_token" value="{esc(csrf_token)}">' if csrf_token else ""
+    account = (
+        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/admin">Yönetim</a><span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
+        if user
+        else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
+    )
+    msg_class = "notice " + message_type if message_type else "notice"
+    notice = f'<div class="{msg_class}">{esc(message)}</div>' if message else ""
+    return f"""<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(title)} · Biga Cheat</title><link rel="stylesheet" href="/static/style.css"></head>
+<body><div class="orb orb-a"></div><div class="orb orb-b"></div>
+<header class="topbar"><a class="brand" href="/"><span class="brand-mark">BC</span><span>Biga Cheat</span></a><nav>{account}</nav></header>
+<main>{notice}{body}</main><footer>Biga Cheat · güvenli indirme alanı</footer></body></html>"""
+
+
+def form_page(title: str, action: str, submit: str, fields: str, user: str | None, message: str = "", message_type: str = "", is_premium: bool = False, csrf_token: str = "") -> str:
+    return page(title, f"""<section class="auth-card"><div class="eyebrow">BIGA CHEAT</div><h1>{esc(title)}</h1><p class="muted">Hesabınla devam et.</p>
+<form method="post" action="{action}" class="form">{fields}<button class="button primary wide" type="submit">{submit}</button></form>
+<p class="switch">{'Hesabın yok mu? <a href="/register">Kayıt ol</a>' if action == '/login' else 'Zaten hesabın var mı? <a href="/login">Giriş yap</a>'}</p></section>""", user, message, message_type, is_premium, csrf_token)
+
+
+def csrf_for(handler: BaseHTTPRequestHandler) -> str:
+    token = handler.current_session_token()
+    if token:
+        return token
+    admin_tok = handler.admin_cookie()
+    if admin_tok:
+        return admin_tok
+    return ""
+
+
+def generate_captcha() -> tuple[str, str]:
+    import random
+    num1 = random.randint(2, 9)
+    num2 = random.randint(2, 9)
+    ans = num1 + num2
+    expires = int(time.time()) + 300
+    payload = f"{expires}:{ans}"
+    sig = hmac.new(APP_SECRET, payload.encode(), hashlib.sha256).hexdigest()
+    return f"{num1} + {num2}", f"{payload}:{sig}"
+
+
+def verify_captcha_cookie(cookie_val: str | None, answer: str) -> bool:
+    if not cookie_val or not answer:
+        return False
+    parts = cookie_val.split(":", 2)
+    if len(parts) != 3:
+        return False
+    expires, ans_str, sig = parts
+    try:
+        if int(expires) < int(time.time()):
+            return False
+    except ValueError:
+        return False
+    payload = f"{expires}:{ans_str}"
+    expected = hmac.new(APP_SECRET, payload.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return False
+    return ans_str == answer.strip()
+
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "BigaCheat/1.0"
+
+    def log_message(self, fmt: str, *args) -> None:
+        print(f"[{self.log_date_time_string()}] {fmt % args}")
+
+    def current_session_token(self) -> str | None:
+        cookie = self.headers.get("Cookie", "")
+        for part in cookie.split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == "session" and value:
+                return value
+        return None
+
+    def admin_cookie(self) -> str | None:
+        cookie = self.headers.get("Cookie", "")
+        for part in cookie.split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == "admin_session" and value:
+                return value
+        return None
+
+    def current_user(self) -> tuple[str, int] | None:
+        token = self.current_session_token()
+        if not token:
+            return None
+        with db() as connection:
+            row = connection.execute(
+                "SELECT users.username, users.id FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.token_hash=? AND sessions.expires_at>?",
+                (token_digest(token), int(time.time())),
+            ).fetchone()
+        return (row["username"], row["id"]) if row else None
+
+    def is_user_premium(self, user_id: int) -> bool:
+        with db() as connection:
+            row = connection.execute("SELECT is_premium FROM users WHERE id=?", (user_id,)).fetchone()
+        return bool(row["is_premium"]) if row else False
+
+    def set_cookie(self, token: str, max_age: int = SESSION_TTL) -> None:
+        flags = "Path=/; HttpOnly; SameSite=Lax"
+        if COOKIE_SECURE:
+            flags += "; Secure"
+        self.send_header("Set-Cookie", f"session={token}; Max-Age={max_age}; {flags}")
+
+    def set_admin_cookie(self, value: str, max_age: int = ADMIN_TTL) -> None:
+        flags = "Path=/; HttpOnly; SameSite=Lax"
+        if COOKIE_SECURE:
+            flags += "; Secure"
+        self.send_header("Set-Cookie", f"admin_session={value}; Max-Age={max_age}; {flags}")
+
+    def captcha_cookie(self) -> str | None:
+        cookie = self.headers.get("Cookie", "")
+        for part in cookie.split(";"):
+            name, _, value = part.strip().partition("=")
+            if name == "captcha" and value:
+                return value
+        return None
+
+    def send_html(self, content: str, status: int = 200, cookies: list[tuple[str, str]] | None = None) -> None:
+        data = content.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "same-origin")
+        if cookies:
+            for name, value in cookies:
+                self.send_header("Set-Cookie", f"{name}={value}; Path=/; HttpOnly; SameSite=Lax")
+        self.end_headers()
+        self.wfile.write(data)
+
+
+
+    def verify_csrf(self, fields: dict[str, str] | dict[str, dict[str, object]], is_multipart: bool = False) -> bool:
+        expected = csrf_for(self)
+        if not expected:
+            return False
+        if is_multipart:
+            token = str(fields.get("csrf_token", {}).get("data", b"").decode("utf-8", "replace")).strip()
+        else:
+            token = fields.get("csrf_token", "").strip()
+        return hmac.compare_digest(token, expected)
+
+    def redirect(self, location: str, token: str | None = None) -> None:
+        self.send_response(HTTPStatus.SEE_OTHER)
+        self.send_header("Location", location)
+        if token is not None:
+            self.set_cookie(token)
+        self.end_headers()
+
+    def redirect_admin(self, location: str, value: str | None = None) -> None:
+        self.send_response(HTTPStatus.SEE_OTHER)
+        self.send_header("Location", location)
+        if value is not None:
+            self.set_admin_cookie(value)
+        self.end_headers()
+
+    def parse_form(self) -> dict[str, str]:
+        length = int(self.headers.get("Content-Length", "0"))
+        raw = self.rfile.read(min(length, 16_384)).decode("utf-8", "replace")
+        return {key: values[0] for key, values in parse_qs(raw).items() if values}
+
+    def do_GET(self) -> None:
+        parsed_url = urlparse(self.path)
+        path = parsed_url.path
+        query = parse_qs(parsed_url.query)
+        message = query.get("msg", [""])[0]
+        message_type = query.get("msg_type", [""])[0]
+        user = self.current_user()
+        username = user[0] if user else None
+        is_premium = self.is_user_premium(user[1]) if user else False
+        csrf_tok = csrf_for(self)
+        if path == "/":
+            status = "Hesabınla giriş yaparak sürümü indirebilirsin." if not user else "Hesabın hazır. Güncel sürümü aşağıdan indirebilirsin."
+            body = f"""<section class="hero"><div class="eyebrow">CS2 İÇİN ÖZEL SÜRÜM ALANI</div><h1>CS2 için Biga Cheat<span>.</span></h1><p class="lead">Temiz, hızlı ve tek yerden yönetilen sürüm ve proje alanı.</p>
+<div class="hero-actions">{'<a class="button primary" href="/download">Sürümü indir</a>' if user else '<a class="button primary" href="/register">Ücretsiz hesap oluştur</a><a class="button ghost" href="/login">Giriş yap</a>'}</div></section>
+<section class="panel-grid"><article class="panel"><span class="panel-icon">01</span><h2>Tek hesap</h2><p>Kayıt ol, giriş yap ve indirme alanına güvenli şekilde eriş.</p></article><article class="panel"><span class="panel-icon">02</span><h2>Güncel dosya</h2><p>Yayınlanan sürüm tek bir indirme bağlantısından sunulur.</p></article><article class="panel"><span class="panel-icon">03</span><h2>Projeler</h2><p>Projeler bölümünde kendi arşivini paylaş ve topluluktan keşfet.</p></article></section><p class="status">{status}</p>"""
+            with db() as connection:
+                latest_updates = connection.execute("SELECT title, body, tag, created_at FROM updates ORDER BY created_at DESC LIMIT 2").fetchall()
+            update_cards = "".join(f'<a class="update-mini" href="/updates"><span class="update-tag">{esc(row["tag"])}</span><strong>{esc(row["title"])}</strong><small>{format_date(row["created_at"])}</small></a>' for row in latest_updates)
+            body += f'<section class="update-strip"><div><div class="eyebrow">SON DUYURULAR</div><h2>Güncellemeler</h2></div><div class="update-mini-list">{update_cards}</div><a class="button ghost" href="/updates">Tümünü gör</a></section>'
+            self.send_html(page("Ana sayfa", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/login":
+            q_text, c_val = generate_captcha()
+            fields = f'<label>Kullanıcı adı<input name="username" autocomplete="username" required maxlength="24"></label><label>Şifre<input name="password" type="password" autocomplete="current-password" required></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
+            self.send_html(form_page("Giriş yap", "/login", "Giriş yap", fields, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), cookies=[("captcha", c_val)])
+        elif path == "/register":
+            q_text, c_val = generate_captcha()
+            fields = f'<label>Kullanıcı adı<input name="username" autocomplete="username" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_]+"></label><label>Şifre<input name="password" type="password" autocomplete="new-password" required minlength="8"></label><label>Şifre tekrar<input name="password2" type="password" autocomplete="new-password" required minlength="8"></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
+            self.send_html(form_page("Kayıt ol", "/register", "Hesap oluştur", fields, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), cookies=[("captcha", c_val)])
+        elif path == "/download":
+            if not user:
+                self.redirect("/login")
+                return
+            if not is_premium:
+                self.redirect("/payment")
+                return
+            if not DOWNLOAD_PATH.is_file():
+                self.send_html(page("Dosya yok", '<section class="auth-card"><h1>Dosya hazır değil</h1><p class="muted">Yönetici henüz bir sürüm yüklemedi.</p></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+                return
+            size = DOWNLOAD_PATH.stat().st_size
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Content-Disposition", 'attachment; filename="Biga-Cheat-Cs2.exe"')
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "same-origin")
+            self.end_headers()
+            with DOWNLOAD_PATH.open("rb") as file:
+                while chunk := file.read(1024 * 1024):
+                    self.wfile.write(chunk)
+        elif path == "/projects":
+            with db() as connection:
+                projects = connection.execute("SELECT projects.id, projects.name, projects.filename, projects.size, projects.created_at, users.username FROM projects JOIN users ON users.id=projects.user_id ORDER BY projects.created_at DESC").fetchall()
+            cards = "".join(f'<article class="project-card"><div><span class="panel-icon">PROJECT</span><h2>{esc(row["name"])}</h2><p class="muted">{esc(row["filename"])} · {human_size(row["size"])} · {esc(row["username"])}</p></div><a class="button ghost" href="/projects/download/{row["id"]}">İndir</a></article>' for row in projects)
+            upload = '<a class="button primary" href="/projects/new">Proje yükle</a>' if user else '<a class="button primary" href="/login">Giriş yap ve yükle</a>'
+            body = f"""<section class="page-head"><div><div class="eyebrow">COMMUNITY PROJECTS</div><h1>Projeler</h1><p class="lead">CS2 topluluğunun arşivlerini tek yerde keşfet.</p></div>{upload}</section><section class="project-list">{cards or '<div class="empty-state"><h2>Henüz proje yok</h2><p class="muted">İlk projeyi sen yükle.</p></div>'}</section>"""
+            self.send_html(page("Projeler", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/updates":
+            with db() as connection:
+                updates = connection.execute("SELECT title, body, tag, created_at FROM updates ORDER BY created_at DESC").fetchall()
+            cards = "".join(f'<article class="update-card"><div class="update-card-top"><span class="update-tag">{esc(row["tag"])}</span><time>{format_date(row["created_at"])}</time></div><h2>{esc(row["title"])}</h2><p>{esc(row["body"])}</p></article>' for row in updates)
+            body = f'''<section class="page-head"><div><div class="eyebrow">RELEASE NOTES</div><h1>Güncellemeler</h1><p class="lead">Biga Cheat sürümleri, duyuruları ve topluluk haberleri.</p></div></section><section class="updates-list">{cards or '<div class="empty-state"><h2>Henüz duyuru yok</h2><p class="muted">Yeni bir gelişme olduğunda burada yayınlanır.</p></div>'}</section>'''
+            self.send_html(page("Güncellemeler", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/projects/new":
+            if not user:
+                self.redirect("/login")
+                return
+            body = f"""<section class="auth-card upload-card"><div class="eyebrow">COMMUNITY PROJECTS</div><h1>Proje yükle</h1><p class="muted">Arşiv dosyası yükle. En fazla 25 MB; ZIP, 7Z, RAR veya TAR.GZ.</p><form method="post" action="/projects/upload" enctype="multipart/form-data" class="form"><input type="hidden" name="csrf_token" value="{esc(csrf_tok)}"><label>Proje adı<input name="project_name" maxlength="80" required></label><label>Arşiv dosyası<input name="project_file" type="file" accept=".zip,.7z,.rar,.tar.gz,.tgz" required></label><button class="button primary wide" type="submit">Projeyi yayınla</button></form></section>"""
+            self.send_html(page("Proje yükle", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path.startswith("/projects/download/"):
+            if not user:
+                self.redirect("/login")
+                return
+            try:
+                project_id = int(path.rsplit("/", 1)[1])
+            except ValueError:
+                self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+                return
+            with db() as connection:
+                project = connection.execute("SELECT filename, stored_path FROM projects WHERE id=?", (project_id,)).fetchone()
+            project_path = DATA_DIR / project["stored_path"] if project else None
+            if not project or not project_path.is_file() or PROJECTS_PATH not in project_path.resolve().parents:
+                self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>Proje bulunamadı</h1></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+                return
+            size = project_path.stat().st_size
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Content-Disposition", f'attachment; filename="{Path(project["filename"]).name}"')
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "same-origin")
+            self.end_headers()
+            with project_path.open("rb") as file:
+                while chunk := file.read(1024 * 1024):
+                    self.wfile.write(chunk)
+        elif path == "/payment":
+            if not user:
+                self.redirect("/login")
+                return
+            with db() as connection:
+                rows = connection.execute("SELECT code, amount, status, created_at FROM payments WHERE user_id=? ORDER BY created_at DESC", (user[1],)).fetchall()
+            
+            payment_rows = ""
+            for r in rows:
+                code_raw = r["code"]
+                if len(code_raw) > 4:
+                    masked_code = "XXXX-XXXX-XXXX-" + code_raw[-4:]
+                else:
+                    masked_code = code_raw
+                
+                status_esc = esc(r["status"])
+                if r["status"] == "ONAYLANDI":
+                    status_class = "onaylandi"
+                elif r["status"] == "REDDEDİLDİ":
+                    status_class = "reddedildi"
+                else:
+                    status_class = "beklemede"
+                
+                status_tag = f'<span class="status-tag {status_class}">{status_esc}</span>'
+                payment_rows += f'<tr><td>{esc(masked_code)}</td><td>{esc(r["amount"])}</td><td>{format_date(r["created_at"])}</td><td>{status_tag}</td></tr>'
+
+            table_content = f"""
+            <div class="table-card" style="margin-top: 30px; max-width: none; padding: 20px 0 0 0; background: transparent; border: none;">
+                <h2 style="font-size: 17px; margin-bottom: 12px;">Geçmiş Bildirimleriniz</h2>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Kod (Maskeli)</th>
+                            <th>Tutar</th>
+                            <th>Tarih</th>
+                            <th>Durum</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {payment_rows}
+                    </tbody>
+                </table>
+            </div>
+            """ if rows else '<div class="empty-state" style="margin-top: 30px;"><h2>Henüz ödeme bildiriminiz yok</h2><p class="muted">Aşağıdaki formu kullanarak kod bildirebilirsiniz.</p></div>'
+
+            body = f"""
+            <section class="auth-card upload-card" style="margin-top: 65px; width: min(650px, calc(100% - 40px));">
+                <div class="eyebrow">PREMIUM ERİŞİM</div>
+                <h1>Premium Üyelik</h1>
+                <p class="lead" style="font-size: 15px; margin: 10px 0 20px;">Biga Cheat Premium sürümünü indirmek için 100 TL, 250 TL veya 500 TL değerinde bir Google Play Hediye Kartı kodu gönderin. Yönetici onayladığında indirme alanınız otomatik açılacaktır.</p>
+                
+                <form method="post" action="/payment/submit" class="form">
+                    <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+                    <label>Hediye Kartı Tutarı
+                        <select name="amount" required style="width: 100%; border: 1px solid #ffffff18; border-radius: 9px; background: #070d15; color: white; padding: 13px 14px; font: inherit; outline: none;">
+                            <option value="100 TL">100 TL</option>
+                            <option value="250 TL">250 TL</option>
+                            <option value="500 TL">500 TL</option>
+                        </select>
+                    </label>
+                    <label>Google Play Kodunuz
+                        <input name="code" placeholder="Örn: XXXX-XXXX-XXXX-XXXX" required maxlength="50" autocomplete="off">
+                    </label>
+                    <button class="button primary wide" type="submit">Ödeme Bildir</button>
+                </form>
+                {table_content}
+            </section>
+            """
+            self.send_html(page("Premium Ödeme", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/admin/login":
+            fields = '<label>Yönetici adı<input name="username" autocomplete="username" required></label><label>Yönetici şifresi<input name="password" type="password" autocomplete="current-password" required></label>'
+            self.send_html(form_page("Yönetici girişi", "/admin/login", "Panele gir", fields, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/admin":
+            if not is_admin_cookie(self.admin_cookie()):
+                self.redirect("/admin/login")
+                return
+            with db() as connection:
+                users = connection.execute("SELECT id, username, created_at, is_premium FROM users ORDER BY created_at DESC").fetchall()
+                updates = connection.execute("SELECT id, title, body, tag, created_at FROM updates ORDER BY created_at DESC").fetchall()
+                payments = connection.execute("SELECT payments.id, users.username, payments.code, payments.amount, payments.status, payments.created_at FROM payments JOIN users ON users.id=payments.user_id ORDER BY payments.created_at DESC").fetchall()
+                logs = connection.execute("SELECT event, created_at FROM logs ORDER BY created_at DESC LIMIT 25").fetchall()
+                logs_count = connection.execute("SELECT COUNT(*) FROM logs").fetchone()[0]
+
+            premium_count = sum(1 for u in users if u["is_premium"])
+            pending_count = sum(1 for p in payments if p["status"] == "BEKLEMEDE")
+
+            user_rows = ""
+            for row in users:
+                p_badge = ' <span class="premium-badge">PREMIUM</span>' if row["is_premium"] else '<span class="status-tag beklemede" style="background:#ffffff0a; color:#888;">STANDART</span>'
+                toggle_btn = f"""
+                <form method="post" action="/admin/users/toggle_premium" class="inline">
+                    <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+                    <input type="hidden" name="user_id" value="{row['id']}">
+                    <button class="button small ghost" style="border-color:#ff44663d; color:#ff4466;" type="submit">İptal Et</button>
+                </form>
+                """ if row["is_premium"] else f"""
+                <form method="post" action="/admin/users/toggle_premium" class="inline">
+                    <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+                    <input type="hidden" name="user_id" value="{row['id']}">
+                    <button class="button small primary" type="submit">Premium Yap</button>
+                </form>
+                """
+                user_rows += f"<tr><td>{esc(row['username'])}</td><td>{p_badge}</td><td>{time.strftime('%Y-%m-%d %H:%M', time.localtime(row['created_at']))}</td><td>{toggle_btn}</td></tr>"
+
+            update_rows = "".join(f"<tr><td><span class=\"update-tag\">{esc(row['tag'])}</span></td><td>{esc(row['title'])}</td><td>{format_date(row['created_at'])}</td></tr>" for row in updates)
+
+            pending_rows = ""
+            invoice_rows = ""
+            for row in payments:
+                status_esc = esc(row["status"])
+                if row["status"] == "ONAYLANDI":
+                    status_badge = f'<span class="status-tag onaylandi">{status_esc}</span>'
+                    invoice_rows += f"<tr><td>{esc(row['username'])}</td><td><code>{esc(row['code'])}</code></td><td>{esc(row['amount'])}</td><td>{format_date(row['created_at'])}</td><td>{status_badge}</td></tr>"
+                elif row["status"] == "REDDEDİLDİ":
+                    status_badge = f'<span class="status-tag reddedildi">{status_esc}</span>'
+                    invoice_rows += f"<tr><td>{esc(row['username'])}</td><td><code>{esc(row['code'])}</code></td><td>{esc(row['amount'])}</td><td>{format_date(row['created_at'])}</td><td>{status_badge}</td></tr>"
+                else:
+                    status_badge = f'<span class="status-tag beklemede">{status_esc}</span>'
+                    actions = f"""
+                    <form method="post" action="/admin/payments/approve" class="inline">
+                        <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+                        <input type="hidden" name="payment_id" value="{row['id']}">
+                        <button class="button primary small" type="submit">Onayla</button>
+                    </form>
+                    <form method="post" action="/admin/payments/reject" class="inline">
+                        <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+                        <input type="hidden" name="payment_id" value="{row['id']}">
+                        <button class="button ghost small" style="border-color:#ff44663d; color:#ff4466;" type="submit">Reddet</button>
+                    </form>
+                    """
+                    pending_rows += f"<tr><td>{esc(row['username'])}</td><td><code>{esc(row['code'])}</code></td><td>{esc(row['amount'])}</td><td>{format_date(row['created_at'])}</td><td>{status_badge}</td><td>{actions}</td></tr>"
+
+            log_rows = "".join(f"<tr><td>{format_date(row['created_at'])} {time.strftime('%H:%M:%S', time.localtime(row['created_at']))}</td><td>{esc(row['event'])}</td></tr>" for row in logs)
+
+            file_status = f"{DOWNLOAD_PATH.stat().st_size / 1024 / 1024:.2f} MB" if DOWNLOAD_PATH.is_file() else "Dosya yok"
+            
+            body = f"""<section class="admin-head"><div><div class="eyebrow">CONTROL CENTER</div><h1>Yönetim paneli</h1><p class="muted">Kayıtlar, ödemeler, sistem günlükleri ve duyurular.</p></div><a class="button ghost" href="/admin/logout">Paneleden çık</a></section>
+<section class="stats" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+    <div class="stat"><span>Kayıtlı Kullanıcı</span><strong>{len(users)}</strong></div>
+    <div class="stat"><span>Premium Üye</span><strong>{premium_count}</strong></div>
+    <div class="stat"><span>Bekleyen Ödeme</span><strong>{pending_count}</strong></div>
+    <div class="stat"><span>Sistem Olay Kaydı</span><strong>{logs_count}</strong></div>
+</section>
+
+<section class="admin-grid" style="display: grid; grid-template-columns: 1fr; gap: 30px;">
+    <section class="table-card">
+        <h2>Kullanıcı Yönetimi (Premium & Yetkilendirme)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Kullanıcı Adı</th>
+                    <th>Üyelik Tipi</th>
+                    <th>Kayıt Tarihi</th>
+                    <th>İşlem</th>
+                </tr>
+            </thead>
+            <tbody>
+                {user_rows or '<tr><td colspan="4" class="muted">Kayıtlı kullanıcı yok.</td></tr>'}
+            </tbody>
+        </table>
+    </section>
+</section>
+
+<section class="admin-grid" style="display: grid; grid-template-columns: 1fr; gap: 30px; margin-top: 30px;">
+    <section class="table-card">
+        <h2>Bekleyen Ödeme Talepleri (Kod Onayları)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Kullanıcı</th>
+                    <th>Kod</th>
+                    <th>Tutar</th>
+                    <th>Tarih</th>
+                    <th>Durum</th>
+                    <th>İşlem</th>
+                </tr>
+            </thead>
+            <tbody>
+                {pending_rows or '<tr><td colspan="6" class="muted">Bekleyen ödeme talebi yok.</td></tr>'}
+            </tbody>
+        </table>
+    </section>
+</section>
+
+<section class="admin-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 30px; align-items: start;">
+    <section class="table-card">
+        <h2>Fatura & Sonuçlanan Ödeme Geçmişi</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Kullanıcı</th>
+                    <th>Kod</th>
+                    <th>Tutar</th>
+                    <th>Tarih</th>
+                    <th>Sonuç</th>
+                </tr>
+            </thead>
+            <tbody>
+                {invoice_rows or '<tr><td colspan="5" class="muted">Onaylanmış veya reddedilmiş ödeme bulunmuyor.</td></tr>'}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="table-card">
+        <h2>Duyuru Yayınla</h2>
+        <form method="post" action="/admin/updates/create" class="form">
+            <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+            <label>Etiket<input name="tag" maxlength="24" value="GÜNCELLEME" required></label>
+            <label>Başlık<input name="title" maxlength="100" required></label>
+            <label>Metin<textarea name="body" maxlength="500" rows="4" required></textarea></label>
+            <button class="button primary" type="submit">Duyuruyu yayınla</button>
+        </form>
+    </section>
+</section>
+
+<section class="admin-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 30px; align-items: start;">
+    <section class="table-card">
+        <h2>Site Sistem Kayıtları (Son 25 Olay)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 170px;">Zaman</th>
+                    <th>Olay Günlüğü</th>
+                </tr>
+            </thead>
+            <tbody>
+                {log_rows or '<tr><td colspan="2" class="muted">Sistem günlüğü henüz boş.</td></tr>'}
+            </tbody>
+        </table>
+    </section>
+
+    <section class="table-card">
+        <h2>Yayınlanan Duyurular</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Etiket</th>
+                    <th>Başlık</th>
+                    <th>Tarih</th>
+                </tr>
+            </thead>
+            <tbody>
+                {update_rows or '<tr><td colspan="3" class="muted">Henüz duyuru yok.</td></tr>'}
+            </tbody>
+        </table>
+    </section>
+</section>
+"""
+            self.send_html(page("Yönetim paneli", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+
+        elif path == "/admin/logout":
+            self.send_response(HTTPStatus.SEE_OTHER)
+            self.send_header("Location", "/")
+            self.set_admin_cookie("", 0)
+            self.end_headers()
+        elif path == "/static/style.css":
+            css = (ROOT / "static" / "style.css").read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/css; charset=utf-8")
+            self.send_header("Content-Length", str(len(css)))
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "same-origin")
+            self.end_headers()
+            self.wfile.write(css)
+        else:
+            self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1><p class="muted">Aradığın sayfa bulunamadı.</p></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+
+    def do_POST(self) -> None:
+        path = urlparse(self.path).path
+        fields = self.parse_form()
+        current = self.current_user()
+        username = current[0] if current else None
+        is_premium = self.is_user_premium(current[1]) if current else False
+        csrf_tok = csrf_for(self)
+        if path == "/register":
+            name = fields.get("username", "").strip()
+            password = fields.get("password", "")
+            captcha_ans = fields.get("captcha_answer", "")
+            if not verify_captcha_cookie(self.captcha_cookie(), captcha_ans):
+                time.sleep(1.0)
+                q_text, c_val = generate_captcha()
+                fields_html = f'<label>Kullanıcı adı<input name="username" required maxlength="24" value="{esc(name)}"></label><label>Şifre<input name="password" type="password" required minlength="8"></label><label>Şifre tekrar<input name="password2" type="password" required minlength="8"></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
+                self.send_html(form_page("Kayıt ol", "/register", "Hesap oluştur", fields_html, username, "Robot doğrulaması hatalı.", message_type="error", is_premium=is_premium, csrf_token=csrf_tok), 400, cookies=[("captcha", c_val)])
+                return
+            if not USERNAME_RE.fullmatch(name):
+                time.sleep(1.0)
+                q_text, c_val = generate_captcha()
+                fields_html = f'<label>Kullanıcı adı<input name="username" required maxlength="24"></label><label>Şifre<input name="password" type="password" required minlength="8"></label><label>Şifre tekrar<input name="password2" type="password" required minlength="8"></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
+                self.send_html(form_page("Kayıt ol", "/register", "Hesap oluştur", fields_html, username, "Kullanıcı adı 3-24 karakter olmalı; yalnızca harf, rakam ve _ kullanabilirsin.", message_type="error", is_premium=is_premium, csrf_token=csrf_tok), 400, cookies=[("captcha", c_val)])
+                return
+            if len(password) < 8 or password != fields.get("password2", ""):
+                time.sleep(1.0)
+                q_text, c_val = generate_captcha()
+                fields_html = f'<label>Kullanıcı adı<input name="username" required maxlength="24" value="{esc(name)}"></label><label>Şifre<input name="password" type="password" required minlength="8"></label><label>Şifre tekrar<input name="password2" type="password" required minlength="8"></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
+                self.send_html(form_page("Kayıt ol", "/register", "Hesap oluştur", fields_html, username, "Şifreler eşleşmeli ve en az 8 karakter olmalı.", message_type="error", is_premium=is_premium, csrf_token=csrf_tok), 400, cookies=[("captcha", c_val)])
+                return
+            try:
+                with db() as connection:
+                    cursor = connection.execute("INSERT INTO users(username,password_hash,created_at) VALUES(?,?,?)", (name, password_hash(password), int(time.time())))
+                    user_id = cursor.lastrowid
+            except sqlite3.IntegrityError:
+                time.sleep(1.0)
+                q_text, c_val = generate_captcha()
+                fields_html = f'<label>Kullanıcı adı<input name="username" required maxlength="24"></label><label>Şifre<input name="password" type="password" required minlength="8"></label><label>Şifre tekrar<input name="password2" type="password" required minlength="8"></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
+                self.send_html(form_page("Kayıt ol", "/register", "Hesap oluştur", fields_html, username, "Bu kullanıcı adı zaten kayıtlı.", message_type="error", is_premium=is_premium, csrf_token=csrf_tok), 409, cookies=[("captcha", c_val)])
+                return
+            token = secrets.token_urlsafe(32)
+            with db() as connection:
+                connection.execute("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)", (token_digest(token), user_id, int(time.time()) + SESSION_TTL))
+            self.redirect("/", token)
+        elif path == "/login":
+            name = fields.get("username", "").strip()
+            password = fields.get("password", "")
+            captcha_ans = fields.get("captcha_answer", "")
+            if not verify_captcha_cookie(self.captcha_cookie(), captcha_ans):
+                time.sleep(1.0)
+                q_text, c_val = generate_captcha()
+                fields_html = f'<label>Kullanıcı adı<input name="username" autocomplete="username" required maxlength="24" value="{esc(name)}"></label><label>Şifre<input name="password" type="password" autocomplete="current-password" required></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
+                self.send_html(form_page("Giriş yap", "/login", "Giriş yap", fields_html, username, "Robot doğrulaması hatalı.", message_type="error", is_premium=is_premium, csrf_token=csrf_tok), 400, cookies=[("captcha", c_val)])
+                return
+            with db() as connection:
+                row = connection.execute("SELECT id,username,password_hash FROM users WHERE username=? COLLATE NOCASE", (name,)).fetchone()
+            if not row or not password_matches(password, row["password_hash"]):
+                time.sleep(1.0)
+                q_text, c_val = generate_captcha()
+                fields_html = f'<label>Kullanıcı adı<input name="username" autocomplete="username" required maxlength="24"></label><label>Şifre<input name="password" type="password" autocomplete="current-password" required></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
+                self.send_html(form_page("Giriş yap", "/login", "Giriş yap", fields_html, username, "Kullanıcı adı veya şifre hatalı.", message_type="error", is_premium=is_premium, csrf_token=csrf_tok), 401, cookies=[("captcha", c_val)])
+                return
+            token = secrets.token_urlsafe(32)
+            with db() as connection:
+                connection.execute("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)", (token_digest(token), row["id"], int(time.time()) + SESSION_TTL))
+            self.redirect("/", token)
+        elif path == "/logout":
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            token = self.current_session_token()
+            if token:
+                with db() as connection:
+                    connection.execute("DELETE FROM sessions WHERE token_hash=?", (token_digest(token),))
+            self.redirect("/", "")
+        elif path == "/projects/upload":
+            if not current:
+                self.redirect("/login")
+                return
+            content_length = int(self.headers.get("Content-Length", "0"))
+            if content_length <= 0 or content_length > MAX_PROJECT_SIZE + 1_000_000:
+                self.send_html(page("Proje yükleme", '<section class="auth-card"><h1>Dosya çok büyük</h1><p class="muted">Maksimum 25 MB yükleyebilirsin.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 413)
+                return
+            body = self.rfile.read(content_length)
+            parts = parse_multipart(body, self.headers.get("Content-Type", ""))
+            if not self.verify_csrf(parts, is_multipart=True):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            name = str(parts.get("project_name", {}).get("data", b"").decode("utf-8", "replace")).strip()
+            file_part = parts.get("project_file", {})
+            filename = Path(str(file_part.get("filename", ""))).name
+            data = file_part.get("data", b"")
+            allowed = (".zip", ".7z", ".rar", ".tar.gz", ".tgz")
+            if not name or len(name) > 80 or not filename.lower().endswith(allowed) or not isinstance(data, bytes) or not data or len(data) > MAX_PROJECT_SIZE:
+                self.send_html(page("Proje yükleme", '<section class="auth-card"><h1>Geçersiz proje</h1><p class="muted">Yalnızca 25 MB’a kadar ZIP, 7Z, RAR veya TAR.GZ arşivi yükleyebilirsin.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 400)
+                return
+            PROJECTS_PATH.mkdir(parents=True, exist_ok=True)
+            with db() as connection:
+                cursor = connection.execute("INSERT INTO projects(user_id,name,filename,stored_path,size,created_at) VALUES(?,?,?,?,?,?)", (current[1], name, filename, "", len(data), int(time.time())))
+                project_id = cursor.lastrowid
+                stored_name = f"{project_id}_{secrets.token_hex(8)}_{filename}"
+                stored_path = str(Path("projects") / stored_name)
+                connection.execute("UPDATE projects SET stored_path=? WHERE id=?", (stored_path, project_id))
+            (DATA_DIR / stored_path).write_bytes(data)
+            log_event(f"[PROJE] '{username}' kullanıcısı '{name}' isimli projeyi başarıyla yükledi.")
+            self.redirect("/projects")
+        elif path == "/payment/submit":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            amount = fields.get("amount", "").strip()
+            code = fields.get("code", "").strip()
+            if not amount or not code or len(code) > 50:
+                self.redirect("/payment?msg=Gecersiz+kod+veya+tutar&msg_type=error")
+                return
+            with db() as connection:
+                connection.execute("INSERT INTO payments(user_id, code, amount, status, created_at) VALUES(?,?,?,?,?)", (current[1], code, amount, "BEKLEMEDE", int(time.time())))
+            log_event(f"[ÖDEME] '{username}' kullanıcısı '{amount}' değerinde kod bildirdi: {code[:4]}...{code[-4:] if len(code) > 4 else ''}")
+            self.redirect("/payment?msg=Kod+basariyla+gonderildi.+Yonetici+tarafindan+onaylanacaktir.&msg_type=success")
+        elif path == "/admin/login":
+            if not ADMIN_PASSWORD or fields.get("username", "").strip().lower() != ADMIN_USERNAME.lower() or not hmac.compare_digest(fields.get("password", ""), ADMIN_PASSWORD):
+                time.sleep(1.0)
+                fields_html = '<label>Yönetici adı<input name="username" autocomplete="username" required></label><label>Yönetici şifresi<input name="password" type="password" autocomplete="current-password" required></label>'
+                self.send_html(form_page("Yönetici girişi", "/admin/login", "Panele gir", fields_html, username, "Yönetici bilgileri hatalı veya ayarlanmamış.", message_type="error", is_premium=is_premium, csrf_token=csrf_tok), 401)
+                return
+            log_event("[YÖNETİCİ] Yönetici başarıyla panele giriş yaptı.")
+            self.redirect_admin("/admin", admin_cookie_value())
+        elif path == "/admin/payments/approve":
+            if not is_admin_cookie(self.admin_cookie()):
+                self.redirect("/admin/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            payment_id = fields.get("payment_id", "")
+            if not payment_id:
+                self.redirect_admin("/admin?msg=Eksik+bilgi&msg_type=error")
+                return
+            with db() as connection:
+                payment = connection.execute("SELECT user_id, status FROM payments WHERE id=?", (payment_id,)).fetchone()
+                if payment and payment["status"] == "BEKLEMEDE":
+                    connection.execute("UPDATE payments SET status='ONAYLANDI' WHERE id=?", (payment_id,))
+                    connection.execute("UPDATE users SET is_premium=1 WHERE id=?", (payment["user_id"],))
+                    user_row = connection.execute("SELECT username FROM users WHERE id=?", (payment["user_id"],)).fetchone()
+                    if user_row:
+                        log_event(f"[PREMIUM] '{user_row['username']}' kullanıcısının ödeme talebi onaylandı ve premium yapıldı.")
+            self.redirect_admin("/admin?msg=Odeme+onaylandi&msg_type=success")
+        elif path == "/admin/payments/reject":
+            if not is_admin_cookie(self.admin_cookie()):
+                self.redirect("/admin/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            payment_id = fields.get("payment_id", "")
+            if not payment_id:
+                self.redirect_admin("/admin?msg=Eksik+bilgi&msg_type=error")
+                return
+            with db() as connection:
+                payment = connection.execute("SELECT user_id, status FROM payments WHERE id=?", (payment_id,)).fetchone()
+                if payment and payment["status"] == "BEKLEMEDE":
+                    connection.execute("UPDATE payments SET status='REDDEDİLDİ' WHERE id=?", (payment_id,))
+                    user_row = connection.execute("SELECT username FROM users WHERE id=?", (payment["user_id"],)).fetchone()
+                    if user_row:
+                        log_event(f"[RED] '{user_row['username']}' kullanıcısının ödeme talebi reddedildi.")
+            self.redirect_admin("/admin?msg=Odeme+reddedildi&msg_type=success")
+        elif path == "/admin/updates/create":
+            if not is_admin_cookie(self.admin_cookie()):
+                self.redirect("/admin/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            tag = fields.get("tag", "GÜNCELLEME").strip()[:24] or "GÜNCELLEME"
+            title = fields.get("title", "").strip()[:100]
+            body = fields.get("body", "").strip()[:500]
+            if not title or not body:
+                self.send_html(page("Duyuru yayınla", '<section class="auth-card"><h1>Eksik bilgi</h1><p class="muted">Başlık ve metin alanlarını doldurmalısın.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 400)
+                return
+            with db() as connection:
+                connection.execute("INSERT INTO updates(title, body, tag, created_at) VALUES(?,?,?,?)", (title, body, tag, int(time.time())))
+            log_event(f"[DUYURU] Yeni duyuru yayınlandı: '{title}'")
+            self.redirect_admin("/admin")
+        elif path == "/admin/users/toggle_premium":
+            if not is_admin_cookie(self.admin_cookie()):
+                self.redirect("/admin/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            user_id = fields.get("user_id", "")
+            if not user_id:
+                self.redirect_admin("/admin?msg=Eksik+bilgi&msg_type=error")
+                return
+            with db() as connection:
+                user_row = connection.execute("SELECT username, is_premium FROM users WHERE id=?", (user_id,)).fetchone()
+                if user_row:
+                    new_status = 0 if user_row["is_premium"] else 1
+                    connection.execute("UPDATE users SET is_premium=? WHERE id=?", (new_status, user_id))
+                    status_str = "PREMIUM yapıldı" if new_status else "PREMIUM iptal edildi"
+                    log_event(f"[KULLANICI] '{user_row['username']}' kullanıcısının premium durumu değiştirildi: {status_str}")
+            self.redirect_admin("/admin?msg=Kullanici+premium+durumu+guncellendi&msg_type=success")
+        else:
+            self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 404)
+
+
+def main() -> None:
+    db().close()
+    host = os.environ.get("HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", "8080"))
+    print(f"Biga Cheat site listening on http://127.0.0.1:{port}")
+    ThreadingHTTPServer((host, port), Handler).serve_forever()
+
+
+if __name__ == "__main__":
+    main()
