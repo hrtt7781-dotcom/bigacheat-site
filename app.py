@@ -8,6 +8,7 @@ import re
 import secrets
 import sqlite3
 import time
+from contextlib import contextmanager
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -29,101 +30,105 @@ ADMIN_TTL = 60 * 60 * 12
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,24}$")
 
 
-def db() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_PATH)
+@contextmanager
+def db():
+    connection = sqlite3.connect(DB_PATH, timeout=30.0)
     connection.row_factory = sqlite3.Row
-    connection.execute(
-        """CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-            password_hash TEXT NOT NULL,
-            is_premium INTEGER NOT NULL DEFAULT 0,
-            created_at INTEGER NOT NULL
-        )"""
-    )
     try:
-        connection.execute("ALTER TABLE users ADD COLUMN is_premium INTEGER NOT NULL DEFAULT 0")
-        connection.commit()
-    except sqlite3.OperationalError:
-        pass
-
-    try:
-        connection.execute("ALTER TABLE users ADD COLUMN balance REAL NOT NULL DEFAULT 0.0")
-        connection.commit()
-    except sqlite3.OperationalError:
-        pass
-
-    try:
-        connection.execute("ALTER TABLE users ADD COLUMN last_daily_claim INTEGER NOT NULL DEFAULT 0")
-        connection.commit()
-    except sqlite3.OperationalError:
-        pass
-
-    try:
-        connection.execute("ALTER TABLE users ADD COLUMN daily_streak INTEGER NOT NULL DEFAULT 0")
-        connection.commit()
-    except sqlite3.OperationalError:
-        pass
-
-    connection.execute(
-        """CREATE TABLE IF NOT EXISTS sessions (
-            token_hash TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL,
-            expires_at INTEGER NOT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )"""
-    )
-    connection.execute(
-        """CREATE TABLE IF NOT EXISTS projects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            name TEXT NOT NULL,
-            filename TEXT NOT NULL,
-            stored_path TEXT NOT NULL,
-            size INTEGER NOT NULL,
-            created_at INTEGER NOT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )"""
-    )
-    connection.execute(
-        """CREATE TABLE IF NOT EXISTS updates (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            body TEXT NOT NULL,
-            tag TEXT NOT NULL DEFAULT 'GÜNCELLEME',
-            created_at INTEGER NOT NULL
-        )"""
-    )
-    connection.execute(
-        """CREATE TABLE IF NOT EXISTS payments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            code TEXT NOT NULL,
-            amount TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'BEKLEMEDE',
-            created_at INTEGER NOT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )"""
-    )
-    connection.execute(
-        """CREATE TABLE IF NOT EXISTS logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event TEXT NOT NULL,
-            created_at INTEGER NOT NULL
-        )"""
-    )
-    if connection.execute("SELECT COUNT(*) FROM updates").fetchone()[0] == 0:
         connection.execute(
-            "INSERT INTO updates(title, body, tag, created_at) VALUES(?,?,?,?)",
-            (
-                "Biga Cheat başlangıç sürümü",
-                "CS2 için yeni sürüm alanı, güvenli indirme ve topluluk projeleri yayında.",
-                "YAYIN",
-                int(time.time()),
-            ),
+            """CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                password_hash TEXT NOT NULL,
+                is_premium INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER NOT NULL
+            )"""
         )
-    connection.commit()
-    return connection
+        try:
+            connection.execute("ALTER TABLE users ADD COLUMN is_premium INTEGER NOT NULL DEFAULT 0")
+            connection.commit()
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            connection.execute("ALTER TABLE users ADD COLUMN balance REAL NOT NULL DEFAULT 0.0")
+            connection.commit()
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            connection.execute("ALTER TABLE users ADD COLUMN last_daily_claim INTEGER NOT NULL DEFAULT 0")
+            connection.commit()
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            connection.execute("ALTER TABLE users ADD COLUMN daily_streak INTEGER NOT NULL DEFAULT 0")
+            connection.commit()
+        except sqlite3.OperationalError:
+            pass
+
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )"""
+        )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                stored_path TEXT NOT NULL,
+                size INTEGER NOT NULL,
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )"""
+        )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS updates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                tag TEXT NOT NULL DEFAULT 'GÜNCELLEME',
+                created_at INTEGER NOT NULL
+            )"""
+        )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                code TEXT NOT NULL,
+                amount TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'BEKLEMEDE',
+                created_at INTEGER NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )"""
+        )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )"""
+        )
+        if connection.execute("SELECT COUNT(*) FROM updates").fetchone()[0] == 0:
+            connection.execute(
+                "INSERT INTO updates(title, body, tag, created_at) VALUES(?,?,?,?)",
+                (
+                    "Biga Cheat başlangıç sürümü",
+                    "CS2 için yeni sürüm alanı, güvenli indirme ve topluluk projeleri yayında.",
+                    "YAYIN",
+                    int(time.time()),
+                ),
+            )
+        connection.commit()
+        yield connection
+    finally:
+        connection.close()
 
 
 def log_event(event: str) -> None:
@@ -310,7 +315,7 @@ def form_page(title: str, action: str, submit: str, fields: str, user: str | Non
 
 
 def csrf_for(handler: BaseHTTPRequestHandler) -> str:
-    token = handler.current_session_token()
+    token = handler.session_cookie()
     if token:
         return token
     admin_tok = handler.admin_cookie()
@@ -356,24 +361,18 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         print(f"[{self.log_date_time_string()}] {fmt % args}")
 
-    def current_session_token(self) -> str | None:
-        cookie = self.headers.get("Cookie", "")
-        for part in cookie.split(";"):
-            name, _, value = part.strip().partition("=")
-            if name == "session" and value:
-                return value
-        return None
+    def session_cookie(self) -> str | None:
+        cookies = self.headers.get("Cookie", "")
+        match = re.search(r"\bsession_v2=([^;]+)", cookies)
+        return match.group(1) if match else None
 
     def admin_cookie(self) -> str | None:
-        cookie = self.headers.get("Cookie", "")
-        for part in cookie.split(";"):
-            name, _, value = part.strip().partition("=")
-            if name == "admin_session" and value:
-                return value
-        return None
+        cookies = self.headers.get("Cookie", "")
+        match = re.search(r"\badmin_session_v2=([^;]+)", cookies)
+        return match.group(1) if match else None
 
     def current_user(self) -> tuple[str, int] | None:
-        token = self.current_session_token()
+        token = self.session_cookie()
         if not token:
             return None
         with db() as connection:
@@ -392,13 +391,13 @@ class Handler(BaseHTTPRequestHandler):
         flags = "Path=/; HttpOnly; SameSite=Lax"
         if COOKIE_SECURE:
             flags += "; Secure"
-        self.send_header("Set-Cookie", f"session={token}; Max-Age={max_age}; {flags}")
+        self.send_header("Set-Cookie", f"session_v2={token}; Max-Age={max_age}; {flags}")
 
     def set_admin_cookie(self, value: str, max_age: int = ADMIN_TTL) -> None:
         flags = "Path=/; HttpOnly; SameSite=Lax"
         if COOKIE_SECURE:
             flags += "; Secure"
-        self.send_header("Set-Cookie", f"admin_session={value}; Max-Age={max_age}; {flags}")
+        self.send_header("Set-Cookie", f"admin_session_v2={value}; Max-Age={max_age}; {flags}")
 
     def captcha_cookie(self) -> str | None:
         cookie = self.headers.get("Cookie", "")
@@ -464,8 +463,6 @@ class Handler(BaseHTTPRequestHandler):
         is_premium = self.is_user_premium(user[1]) if user else False
         csrf_tok = csrf_for(self)
 
-        # Daily logic removed here (now handles in /daily page and /daily/claim POST)
-        pass
         if path == "/":
             status = "Hesabınla giriş yaparak sürümü indirebilirsin." if not user else "Hesabın hazır. Güncel sürümü aşağıdan indirebilirsin."
             body = f"""<section class="hero"><div class="eyebrow">CS2 İÇİN ÖZEL SÜRÜM ALANI</div><h1>CS2 için Biga Cheat<span>.</span></h1><p class="lead">Temiz, hızlı ve tek yerden yönetilen sürüm ve proje alanı.</p>
@@ -517,7 +514,7 @@ class Handler(BaseHTTPRequestHandler):
             with db() as connection:
                 updates = connection.execute("SELECT title, body, tag, created_at FROM updates ORDER BY created_at DESC").fetchall()
             cards = "".join(f'<article class="update-card"><div class="update-card-top"><span class="update-tag">{esc(row["tag"])}</span><time>{format_date(row["created_at"])}</time></div><h2>{esc(row["title"])}</h2><p>{esc(row["body"])}</p></article>' for row in updates)
-            body = f'''<section class="page-head"><div><div class="eyebrow">RELEASE NOTES</div><h1>Güncellemeler</h1><p class="lead">Biga Cheat sürümleri, duyuruları ve topluluk haberleri.</p></div></section><section class="updates-list">{cards or '<div class="empty-state"><h2>Henüz duyuru yok</h2><p class="muted">Yeni bir gelişme olduğunda burada yayınlanır.</p></div>'}</section>'''
+            body = f'''<section class="page-head"><div><div class="eyebrow">RELEASE NOTES</div><h1>Güncellemeler</h1><p class="lead">Biga Cheat sürümleri, duyuruları ve topluluk haberleri.</p></div></section><section class="updates-list">{cards or '<div class="empty-state"><h2>Henüz duyuru yok</h2><p class="muted">Yeni bir gelişme olduğunda burada yayınlanır.</p></div>'}'''
             self.send_html(page("Güncellemeler", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
         elif path == "/projects/new":
             if not user:
@@ -899,9 +896,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_html(page("Yönetim paneli", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
 
         elif path == "/admin/logout":
-            self.send_response(HTTPStatus.SEE_OTHER)
-            self.send_header("Location", "/")
-            self.set_admin_cookie("", 0)
+            self.send_response(302)
+            self.send_header("Location", "/admin/login")
+            self.send_header("Set-Cookie", "admin_session_v2=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax")
             self.end_headers()
         elif path == "/static/style.css":
             css = (ROOT / "static" / "style.css").read_bytes()
@@ -982,14 +979,16 @@ class Handler(BaseHTTPRequestHandler):
                 connection.execute("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)", (token_digest(token), row["id"], int(time.time()) + SESSION_TTL))
             self.redirect("/", token)
         elif path == "/logout":
-            if not self.verify_csrf(fields):
-                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
-                return
-            token = self.current_session_token()
+            token = self.session_cookie()
             if token:
+                token_h = token_digest(token)
                 with db() as connection:
-                    connection.execute("DELETE FROM sessions WHERE token_hash=?", (token_digest(token),))
-            self.redirect("/", "")
+                    connection.execute("DELETE FROM sessions WHERE token_hash=?", (token_h,))
+                    connection.commit()
+            self.send_response(302)
+            self.send_header("Location", "/")
+            self.send_header("Set-Cookie", "session_v2=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax")
+            self.end_headers()
         elif path == "/projects/upload":
             if not current:
                 self.redirect("/login")
