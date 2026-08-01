@@ -246,7 +246,61 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
 <title>{esc(title)} · Biga Cheat</title><link rel="stylesheet" href="/static/style.css"></head>
 <body><div class="orb orb-a"></div><div class="orb orb-b"></div>
 <header class="topbar"><a class="brand" href="/"><span class="brand-mark">BC</span><span>Biga Cheat</span></a><nav>{account}</nav></header>
-<main>{notice}{body}</main><footer>Biga Cheat · güvenli indirme alanı</footer></body></html>"""
+<main>{notice}{body}</main><footer>Biga Cheat · güvenli indirme alanı</footer>
+<script>
+    const notice = document.querySelector('.notice.success');
+    if (notice && (notice.textContent.includes('ödülü') || notice.textContent.includes('bakiye') || notice.textContent.includes('Bakiye'))) {{
+        window.addEventListener('load', () => {{
+            try {{
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                const ctx = new AudioContext();
+                
+                // Note 1 (C5)
+                const osc1 = ctx.createOscillator();
+                const gain1 = ctx.createGain();
+                osc1.type = 'sine';
+                osc1.frequency.setValueAtTime(523.25, ctx.currentTime);
+                gain1.gain.setValueAtTime(0.08, ctx.currentTime);
+                gain1.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+                osc1.connect(gain1);
+                gain1.connect(ctx.destination);
+                osc1.start();
+                osc1.stop(ctx.currentTime + 0.1);
+                
+                // Note 2 (E5)
+                setTimeout(() => {{
+                    const osc2 = ctx.createOscillator();
+                    const gain2 = ctx.createGain();
+                    osc2.type = 'sine';
+                    osc2.frequency.setValueAtTime(659.25, ctx.currentTime);
+                    gain2.gain.setValueAtTime(0.08, ctx.currentTime);
+                    gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+                    osc2.connect(gain2);
+                    gain2.connect(ctx.destination);
+                    osc2.start();
+                    osc2.stop(ctx.currentTime + 0.15);
+                }}, 85);
+                
+                // Note 3 (G5)
+                setTimeout(() => {{
+                    const osc3 = ctx.createOscillator();
+                    const gain3 = ctx.createGain();
+                    osc3.type = 'sine';
+                    osc3.frequency.setValueAtTime(783.99, ctx.currentTime);
+                    gain3.gain.setValueAtTime(0.12, ctx.currentTime);
+                    gain3.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+                    osc3.connect(gain3);
+                    gain3.connect(ctx.destination);
+                    osc3.start();
+                    osc3.stop(ctx.currentTime + 0.3);
+                }}, 170);
+            }} catch(e) {{
+                console.error(e);
+            }}
+        }});
+    }}
+</script>
+</body></html>"""
 
 
 def form_page(title: str, action: str, submit: str, fields: str, user: str | None, message: str = "", message_type: str = "", is_premium: bool = False, csrf_token: str = "") -> str:
