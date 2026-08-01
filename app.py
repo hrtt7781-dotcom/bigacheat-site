@@ -223,7 +223,7 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
             
     balance_pill = f'<span class="balance-pill">Bakiye: {balance_val:.2f} TL</span>' if user else ""
     account = (
-        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
+        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
         if user
         else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
     )
@@ -511,7 +511,7 @@ class Handler(BaseHTTPRequestHandler):
 
             table_content = f"""
             <div class="table-card" style="margin-top: 30px; max-width: none; padding: 20px 0 0 0; background: transparent; border: none;">
-                <h2 style="font-size: 17px; margin-bottom: 12px;">Geçmiş Bildirimleriniz</h2>
+                <h2 style="font-size: 17px; margin-bottom: 12px;">Geçmiş Yüklemeleriniz</h2>
                 <table>
                     <thead>
                         <tr>
@@ -526,13 +526,13 @@ class Handler(BaseHTTPRequestHandler):
                     </tbody>
                 </table>
             </div>
-            """ if rows else '<div class="empty-state" style="margin-top: 30px;"><h2>Henüz ödeme bildiriminiz yok</h2><p class="muted">Aşağıdaki formu kullanarak kod bildirebilirsiniz.</p></div>'
+            """ if rows else '<div class="empty-state" style="margin-top: 30px;"><h2>Henüz bakiye yükleme bildiriminiz yok</h2><p class="muted">Aşağıdaki formu kullanarak kod bildirebilirsiniz.</p></div>'
 
             body = f"""
             <section class="auth-card upload-card" style="margin-top: 65px; width: min(650px, calc(100% - 40px));">
-                <div class="eyebrow">PREMIUM ERİŞİM</div>
-                <h1>Premium Üyelik</h1>
-                <p class="lead" style="font-size: 15px; margin: 10px 0 20px;">Biga Cheat Premium sürümünü indirmek için 100 TL, 250 TL veya 500 TL değerinde bir Google Play Hediye Kartı kodu gönderin. Yönetici onayladığında indirme alanınız otomatik açılacaktır.</p>
+                <div class="eyebrow">BAKİYE YÜKLEME ALANI</div>
+                <h1>Bakiye Yükle</h1>
+                <p class="lead" style="font-size: 15px; margin: 10px 0 20px;">Biga Cheat hile bakiyenizi yüklemek için 100 TL, 250 TL veya 500 TL değerinde bir Google Play Hediye Kartı kodu gönderin. Yönetici onayladığında bakiye hesabınıza otomatik yüklenecektir.</p>
                 
                 <form method="post" action="/payment/submit" class="form">
                     <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
@@ -546,12 +546,12 @@ class Handler(BaseHTTPRequestHandler):
                     <label>Google Play Kodunuz
                         <input name="code" placeholder="Örn: XXXX-XXXX-XXXX-XXXX" required maxlength="50" autocomplete="off">
                     </label>
-                    <button class="button primary wide" type="submit">Ödeme Bildir</button>
+                    <button class="button primary wide" type="submit">Bakiye Bildir</button>
                 </form>
                 {table_content}
             </section>
             """
-            self.send_html(page("Premium Ödeme", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+            self.send_html(page("Bakiye Yükle", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
         elif path == "/admin/login":
             fields = '<label>Yönetici adı<input name="username" autocomplete="username" required></label><label>Yönetici şifresi<input name="password" type="password" autocomplete="current-password" required></label>'
             self.send_html(form_page("Yönetici girişi", "/admin/login", "Panele gir", fields, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
