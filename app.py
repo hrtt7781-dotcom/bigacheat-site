@@ -47,6 +47,12 @@ def db() -> sqlite3.Connection:
     except sqlite3.OperationalError:
         pass
 
+    try:
+        connection.execute("ALTER TABLE users ADD COLUMN balance REAL NOT NULL DEFAULT 0.0")
+        connection.commit()
+    except sqlite3.OperationalError:
+        pass
+
     connection.execute(
         """CREATE TABLE IF NOT EXISTS sessions (
             token_hash TEXT PRIMARY KEY,
@@ -204,8 +210,20 @@ def format_date(timestamp: int) -> str:
 def page(title: str, body: str, user: str | None = None, message: str = "", message_type: str = "", is_premium: bool = False, csrf_token: str = "") -> str:
     premium_badge = ' <span class="premium-badge">PREMIUM</span>' if is_premium else ""
     csrf_input = f'<input type="hidden" name="csrf_token" value="{esc(csrf_token)}">' if csrf_token else ""
+    
+    balance_val = 0.0
+    if user:
+        try:
+            with db() as connection:
+                row = connection.execute("SELECT balance FROM users WHERE username=?", (user,)).fetchone()
+                if row:
+                    balance_val = float(row["balance"])
+        except Exception:
+            pass
+            
+    balance_pill = f'<span class="balance-pill">Bakiye: {balance_val:.2f} TL</span>' if user else ""
     account = (
-        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/admin">Yönetim</a><span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
+        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
         if user
         else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
     )
@@ -542,7 +560,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.redirect("/admin/login")
                 return
             with db() as connection:
-                users = connection.execute("SELECT id, username, created_at, is_premium FROM users ORDER BY created_at DESC").fetchall()
+                users = connection.execute("SELECT id, username, created_at, is_premium, balance FROM users ORDER BY created_at DESC").fetchall()
                 updates = connection.execute("SELECT id, title, body, tag, created_at FROM updates ORDER BY created_at DESC").fetchall()
                 payments = connection.execute("SELECT payments.id, users.username, payments.code, payments.amount, payments.status, payments.created_at FROM payments JOIN users ON users.id=payments.user_id ORDER BY payments.created_at DESC").fetchall()
                 logs = connection.execute("SELECT event, created_at FROM logs ORDER BY created_at DESC LIMIT 25").fetchall()
@@ -554,6 +572,17 @@ class Handler(BaseHTTPRequestHandler):
             user_rows = ""
             for row in users:
                 p_badge = ' <span class="premium-badge">PREMIUM</span>' if row["is_premium"] else '<span class="status-tag beklemede" style="background:#ffffff0a; color:#888;">STANDART</span>'
+                balance_val = float(row["balance"])
+                
+                balance_actions = f"""
+                <form method="post" action="/admin/users/add_balance" class="inline" style="margin-left: 10px;">
+                    <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+                    <input type="hidden" name="user_id" value="{row['id']}">
+                    <input type="number" name="amount" placeholder="Tutar (TL)" style="width: 80px; padding: 4px 8px; border: 1px solid #ffffff18; border-radius: 6px; background: #070d15; color: white; font-size: 12px; display: inline;" required>
+                    <button class="button small primary" type="submit" style="padding: 4px 8px; font-size: 12px;">Ekle</button>
+                </form>
+                """
+                
                 toggle_btn = f"""
                 <form method="post" action="/admin/users/toggle_premium" class="inline">
                     <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
@@ -567,7 +596,7 @@ class Handler(BaseHTTPRequestHandler):
                     <button class="button small primary" type="submit">Premium Yap</button>
                 </form>
                 """
-                user_rows += f"<tr><td>{esc(row['username'])}</td><td>{p_badge}</td><td>{time.strftime('%Y-%m-%d %H:%M', time.localtime(row['created_at']))}</td><td>{toggle_btn}</td></tr>"
+                user_rows += f"<tr><td>{esc(row['username'])}</td><td>{p_badge}</td><td>{balance_val:.2f} TL</td><td>{time.strftime('%Y-%m-%d %H:%M', time.localtime(row['created_at']))}</td><td style='display: flex; gap: 10px; align-items: center;'>{toggle_btn} {balance_actions}</td></tr>"
 
             update_rows = "".join(f"<tr><td><span class=\"update-tag\">{esc(row['tag'])}</span></td><td>{esc(row['title'])}</td><td>{format_date(row['created_at'])}</td></tr>" for row in updates)
 
@@ -617,12 +646,13 @@ class Handler(BaseHTTPRequestHandler):
                 <tr>
                     <th>Kullanıcı Adı</th>
                     <th>Üyelik Tipi</th>
+                    <th>Bakiye</th>
                     <th>Kayıt Tarihi</th>
                     <th>İşlem</th>
                 </tr>
             </thead>
             <tbody>
-                {user_rows or '<tr><td colspan="4" class="muted">Kayıtlı kullanıcı yok.</td></tr>'}
+                {user_rows or '<tr><td colspan="5" class="muted">Kayıtlı kullanıcı yok.</td></tr>'}
             </tbody>
         </table>
     </section>
@@ -874,13 +904,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.redirect_admin("/admin?msg=Eksik+bilgi&msg_type=error")
                 return
             with db() as connection:
-                payment = connection.execute("SELECT user_id, status FROM payments WHERE id=?", (payment_id,)).fetchone()
+                payment = connection.execute("SELECT user_id, status, amount FROM payments WHERE id=?", (payment_id,)).fetchone()
                 if payment and payment["status"] == "BEKLEMEDE":
                     connection.execute("UPDATE payments SET status='ONAYLANDI' WHERE id=?", (payment_id,))
-                    connection.execute("UPDATE users SET is_premium=1 WHERE id=?", (payment["user_id"],))
+                    
+                    # Extract numeric value from amount string (e.g. "100 TL" -> 100.0)
+                    amount_str = payment["amount"]
+                    try:
+                        amount_val = float("".join(c for c in amount_str if c.isdigit() or c == "."))
+                    except ValueError:
+                        amount_val = 0.0
+                        
+                    connection.execute("UPDATE users SET is_premium=1, balance=balance+? WHERE id=?", (amount_val, payment["user_id"]))
                     user_row = connection.execute("SELECT username FROM users WHERE id=?", (payment["user_id"],)).fetchone()
                     if user_row:
-                        log_event(f"[PREMIUM] '{user_row['username']}' kullanıcısının ödeme talebi onaylandı ve premium yapıldı.")
+                        log_event(f"[PREMIUM] '{user_row['username']}' kullanıcısının ödeme talebi onaylandı, premium yapıldı ve {amount_val:.2f} TL bakiye eklendi.")
             self.redirect_admin("/admin?msg=Odeme+onaylandi&msg_type=success")
         elif path == "/admin/payments/reject":
             if not is_admin_cookie(self.admin_cookie()):
@@ -937,6 +975,29 @@ class Handler(BaseHTTPRequestHandler):
                     status_str = "PREMIUM yapıldı" if new_status else "PREMIUM iptal edildi"
                     log_event(f"[KULLANICI] '{user_row['username']}' kullanıcısının premium durumu değiştirildi: {status_str}")
             self.redirect_admin("/admin?msg=Kullanici+premium+durumu+guncellendi&msg_type=success")
+        elif path == "/admin/users/add_balance":
+            if not is_admin_cookie(self.admin_cookie()):
+                self.redirect("/admin/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            user_id = fields.get("user_id", "")
+            amount = fields.get("amount", "")
+            if not user_id or not amount:
+                self.redirect_admin("/admin?msg=Eksik+bilgi&msg_type=error")
+                return
+            try:
+                amount_val = float(amount)
+            except ValueError:
+                self.redirect_admin("/admin?msg=Gecersiz+tutar&msg_type=error")
+                return
+            with db() as connection:
+                user_row = connection.execute("SELECT username FROM users WHERE id=?", (user_id,)).fetchone()
+                if user_row:
+                    connection.execute("UPDATE users SET balance=balance+? WHERE id=?", (amount_val, user_id))
+                    log_event(f"[BAKİYE] Admin '{user_row['username']}' kullanıcısına {amount_val:.2f} TL bakiye ekledi.")
+            self.redirect_admin("/admin?msg=Bakiye+guncellendi&msg_type=success")
         else:
             self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 404)
 

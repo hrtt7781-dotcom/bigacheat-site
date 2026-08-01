@@ -36,3 +36,7 @@ main{position:relative;z-index:1}.hero{max-width:1180px;margin:112px auto 72px;p
 .button.small,button.small{padding:6px 12px;font-size:13px;border-radius:6px}
 .notice.success{color:#c4eed9;background:#1c5e3d55;border:1px solid #3cce7e44}
 .notice.error{color:#ffd4d4;background:#7e2b3c55;border:1px solid #ff7c9844}
+
+.balance-pill{display:inline-block;color:#65d9ff;font-size:13px;font-weight:750;border:1px solid #65d9ff3d;background:#65d9ff1a;border-radius:999px;padding:8px 12px;margin-right:8px;vertical-align:middle}
+@media(max-width:560px){.balance-pill{padding:7px 8px;font-size:11px;margin-right:4px}}
+
