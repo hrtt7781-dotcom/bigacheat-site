@@ -19,7 +19,7 @@ DATA_DIR = Path("/data") if Path("/data").is_dir() else ROOT
 DB_PATH = DATA_DIR / "data.sqlite3"
 DOWNLOAD_PATH = ROOT / "downloads" / "Biga Cheat-Cs2-Modified.exe"
 PROJECTS_PATH = DATA_DIR / "projects"
-APP_SECRET = os.environ.get("APP_SECRET", "change-this-secret-before-deploying").encode()
+APP_SECRET = b"bigacheat-super-secure-fixed-session-secret-key-123"
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0") == "1"
 SESSION_TTL = 60 * 60 * 24 * 14
 MAX_PROJECT_SIZE = 25 * 1024 * 1024
