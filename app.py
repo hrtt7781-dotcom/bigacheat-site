@@ -53,6 +53,12 @@ def db() -> sqlite3.Connection:
     except sqlite3.OperationalError:
         pass
 
+    try:
+        connection.execute("ALTER TABLE users ADD COLUMN last_daily_claim INTEGER NOT NULL DEFAULT 0")
+        connection.commit()
+    except sqlite3.OperationalError:
+        pass
+
     connection.execute(
         """CREATE TABLE IF NOT EXISTS sessions (
             token_hash TEXT PRIMARY KEY,
@@ -397,6 +403,25 @@ class Handler(BaseHTTPRequestHandler):
         username = user[0] if user else None
         is_premium = self.is_user_premium(user[1]) if user else False
         csrf_tok = csrf_for(self)
+
+        # Check and award daily login reward (10.00 TL)
+        if user:
+            user_id = user[1]
+            try:
+                with db() as connection:
+                    row = connection.execute("SELECT last_daily_claim FROM users WHERE id=?", (user_id,)).fetchone()
+                    if row:
+                        last_daily_claim = row["last_daily_claim"]
+                        current_time = int(time.time())
+                        last_date_str = time.strftime("%Y-%m-%d", time.localtime(last_daily_claim))
+                        current_date_str = time.strftime("%Y-%m-%d", time.localtime(current_time))
+                        if last_date_str != current_date_str:
+                            connection.execute("UPDATE users SET balance=balance+10.00, last_daily_claim=? WHERE id=?", (current_time, user_id))
+                            connection.commit()
+                            message = "Harika! Bugünün günlük giriş ödülü olarak 10.00 TL bakiyene eklendi! 🎁"
+                            message_type = "success"
+            except Exception:
+                pass
         if path == "/":
             status = "Hesabınla giriş yaparak sürümü indirebilirsin." if not user else "Hesabın hazır. Güncel sürümü aşağıdan indirebilirsin."
             body = f"""<section class="hero"><div class="eyebrow">CS2 İÇİN ÖZEL SÜRÜM ALANI</div><h1>CS2 için Biga Cheat<span>.</span></h1><p class="lead">Temiz, hızlı ve tek yerden yönetilen sürüm ve proje alanı.</p>
