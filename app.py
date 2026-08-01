@@ -23,8 +23,8 @@ APP_SECRET = os.environ.get("APP_SECRET", "change-this-secret-before-deploying")
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0") == "1"
 SESSION_TTL = 60 * 60 * 24 * 14
 MAX_PROJECT_SIZE = 25 * 1024 * 1024
-ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "yunustat14")
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = "yunustat14"
 ADMIN_TTL = 60 * 60 * 12
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,24}$")
 
