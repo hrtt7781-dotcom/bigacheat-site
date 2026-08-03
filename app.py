@@ -19,7 +19,23 @@ from urllib.parse import parse_qs, urlparse
 
 
 ROOT = Path(__file__).resolve().parent
-DATA_DIR = Path("/data") if Path("/data").is_dir() else ROOT
+
+
+def _resolve_data_dir() -> Path:
+    render = os.environ.get("RENDER") == "true"
+    candidate = Path("/data")
+    if candidate.is_dir():
+        return candidate
+    if render:
+        raise RuntimeError(
+            "Render'da kalıcı disk /data olarak bağlanmamış. "
+            "render.yaml'deki disk bölümünü kontrol et ve diski servise bağla; "
+            "aksi halde tüm kayıtlar her yeniden başlatmada silinir."
+        )
+    return ROOT
+
+
+DATA_DIR = _resolve_data_dir()
 DB_PATH = DATA_DIR / "data.sqlite3"
 DOWNLOAD_PATH = ROOT / "downloads" / "Biga Cheat-Cs2-Modified.exe"
 PROJECTS_PATH = DATA_DIR / "projects"
@@ -1556,11 +1572,22 @@ def main() -> None:
         raise RuntimeError("APP_SECRET env var is required")
     if not ADMIN_PASSWORD:
         raise RuntimeError("ADMIN_PASSWORD env var is required")
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        probe = DATA_DIR / ".write_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError as exc:
+        raise RuntimeError(
+            f"Veri dizini yazılabilir değil: {DATA_DIR} ({exc}). "
+            "Render'da kalıcı disk bağlanmamış olabilir; kayıtlar kaybolur."
+        ) from exc
     with db():
         pass
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8080"))
     print(f"Biga Cheat site listening on http://127.0.0.1:{port}")
+    print(f"Veritabanı: {DB_PATH}")
     ThreadingHTTPServer((host, port), Handler).serve_forever()
 
 
