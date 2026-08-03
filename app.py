@@ -58,6 +58,11 @@ DB_PATH = DATA_DIR / "data.sqlite3"
 DOWNLOAD_PATH = ROOT / "downloads" / "Biga Cheat-Cs2-Modified.exe"
 PAID_CHEATS_DIR = ROOT / "paid_cheats"
 PROJECTS_PATH = DATA_DIR / "projects"
+# Ücretli Hileler'e bakiye ile süreli erişim planları (gün -> TL)
+PAID_CHEATS_PLANS = {
+    "30": {"days": 30, "price": 350.0},
+    "90": {"days": 90, "price": 800.0},
+}
 APP_SECRET = os.environ.get("APP_SECRET", "").encode()
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0") == "1"
 SESSION_TTL = 60 * 60 * 24 * 14
@@ -149,6 +154,7 @@ def _migrate(connection) -> None:
                     username TEXT NOT NULL UNIQUE,
                     password_hash TEXT NOT NULL,
                     is_premium INTEGER NOT NULL DEFAULT 0,
+                    premium_until BIGINT NOT NULL DEFAULT 0,
                     balance DOUBLE PRECISION NOT NULL DEFAULT 0,
                     last_daily_claim BIGINT NOT NULL DEFAULT 0,
                     daily_streak INTEGER NOT NULL DEFAULT 0,
@@ -157,6 +163,7 @@ def _migrate(connection) -> None:
                 )"""
             )
             connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower ON users (LOWER(username))")
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_until BIGINT NOT NULL DEFAULT 0")
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS sessions (
                     token_hash TEXT PRIMARY KEY,
@@ -215,6 +222,12 @@ def _migrate(connection) -> None:
             )
             try:
                 connection.execute("ALTER TABLE users ADD COLUMN is_premium INTEGER NOT NULL DEFAULT 0")
+                connection.commit()
+            except sqlite3.OperationalError:
+                pass
+
+            try:
+                connection.execute("ALTER TABLE users ADD COLUMN premium_until INTEGER NOT NULL DEFAULT 0")
                 connection.commit()
             except sqlite3.OperationalError:
                 pass
@@ -641,8 +654,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def is_user_premium(self, user_id: int) -> bool:
         with db() as connection:
-            row = connection.execute("SELECT is_premium FROM users WHERE id=?", (user_id,)).fetchone()
-        return bool(row["is_premium"]) if row else False
+            row = connection.execute("SELECT is_premium, premium_until FROM users WHERE id=?", (user_id,)).fetchone()
+        if not row:
+            return False
+        return bool(row["is_premium"]) or row["premium_until"] > int(time.time())
+
+    def premium_expiry(self, user_id: int) -> int:
+        with db() as connection:
+            row = connection.execute("SELECT premium_until FROM users WHERE id=?", (user_id,)).fetchone()
+        return int(row["premium_until"]) if row else 0
 
     def set_cookie(self, token: str, max_age: int = SESSION_TTL) -> None:
         flags = "Path=/; HttpOnly; SameSite=Lax"
@@ -806,9 +826,6 @@ class Handler(BaseHTTPRequestHandler):
             if not user:
                 self.redirect("/login")
                 return
-            if not is_premium:
-                self.redirect("/payment?msg=Bu+alana+erismek+icin+premium+uyelik+gerekli.&msg_type=error")
-                return
             files = []
             if PAID_CHEATS_DIR.is_dir():
                 for f in sorted(PAID_CHEATS_DIR.iterdir(), key=lambda p: p.name.lower()):
@@ -820,10 +837,40 @@ class Handler(BaseHTTPRequestHandler):
                     readme_txt = (PAID_CHEATS_DIR / "README.md").read_text("utf-8", "replace")
                 except Exception:
                     readme_txt = ""
+            if not is_premium:
+                with db() as connection:
+                    bal_row = connection.execute("SELECT balance FROM users WHERE id=?", (user[1],)).fetchone()
+                balance_val = float(bal_row["balance"]) if bal_row else 0.0
+                plan_options = ""
+                for key, plan in PAID_CHEATS_PLANS.items():
+                    plan_options += f'<label><input type="radio" name="plan" value="{key}" required> {plan["days"]} gün — {plan["price"]:.0f} TL</label><br>'
+                body = f"""<section class="page-head"><div><div class="eyebrow">PREMIUM VAULT</div><h1>Ücretli Hileler</h1><p class="lead">Özel premium sürümlere erişmek için bakiyenle süreli erişim satın al. Günlük ödül ve çarklardan kazandığın bakiyeyi kullan.</p></div></section>
+<section class="auth-card upload-card" style="margin-top: 20px; width: min(600px, calc(100% - 40px));">
+    <div class="eyebrow">ERİŞİM SATIN AL</div>
+    <h1>Bakiyen: {balance_val:.2f} TL</h1>
+    <form method="post" action="/paid-cheats/purchase" class="form">
+        <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+        <label>Süre Seç
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">{plan_options}</div>
+        </label>
+        <button class="button primary wide" type="submit">Bakiyemle Al</button>
+    </form>
+    <p class="muted" style="font-size: 13px; margin-top: 12px;">Bakiyen yetersizse <a href="/payment">Bakiye Yükle</a> sayfasından Steam/Google Play koduyla yükleyebilirsin.</p>
+</section>
+<section class="auth-card" style="margin-top: 30px; max-width: none;"><div class="eyebrow">İÇERİK</div><h2>Bu alanda neler var?</h2><div class="project-list">{file_cards if (file_cards := "".join(f'<article class="project-card"><div><span class="panel-icon">PREMIUM</span><h2>{esc(f.name)}</h2><p class="muted">{human_size(f.stat().st_size)}</p></div></article>' for f in files)) else '<div class="empty-state"><h2>İçerik hazır değil</h2><p class="muted">Yönetici henüz premium içerik yüklemedi.</p></div>'}</div></section>"""
+                self.send_html(page("Ücretli Hileler", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+                return
+            expiry = self.premium_expiry(user[1])
+            if expiry > 0:
+                days_left = max(0, (expiry - int(time.time())) // 86400)
+                expiry_box = f'<div class="notice" style="margin-bottom: 20px;">Erişim süreniz aktif — kalan süre: <strong>{days_left} gün</strong></div>'
+            else:
+                expiry_box = ""
             file_cards = ""
             for f in files:
                 file_cards += f'<article class="project-card"><div><span class="panel-icon">PREMIUM</span><h2>{esc(f.name)}</h2><p class="muted">{human_size(f.stat().st_size)}</p></div><a class="button primary" href="/paid-cheats/download/{quote(f.name)}">İndir</a></article>'
-            body = f"""<section class="page-head"><div><div class="eyebrow">PREMIUM VAULT</div><h1>Ücretli Hileler</h1><p class="lead">Premium üyelerin indirebileceği özel sürümler. Para yatırdıktan sonra buradan indirebilirsin.</p></div></section>
+            body = f"""<section class="page-head"><div><div class="eyebrow">PREMIUM VAULT</div><h1>Ücretli Hileler</h1><p class="lead">Premium üyelerin indirebileceği özel sürümler.</p></div></section>
+{expiry_box}
 <section class="project-list">{file_cards or '<div class="empty-state"><h2>İçerik hazır değil</h2><p class="muted">Yönetici henüz premium içerik yüklemedi.</p></div>'}</section>
 <section class="auth-card" style="margin-top: 30px; max-width: none;"><div class="eyebrow">KURULUM</div><h2>Nasıl Kullanılır?</h2><pre style="white-space: pre-wrap; background: #ffffff04; border: 1px solid var(--line); border-radius: 10px; padding: 16px; font-size: 13px; color: #cfd8e3;">{esc(readme_txt) if readme_txt else 'Kurulum notu yakında eklenecek.'}</pre></section>"""
             self.send_html(page("Ücretli Hileler", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
@@ -1203,18 +1250,25 @@ class Handler(BaseHTTPRequestHandler):
                 self.redirect("/admin/login")
                 return
             with db() as connection:
-                users = connection.execute("SELECT id, username, created_at, is_premium, balance FROM users ORDER BY created_at DESC").fetchall()
+                users = connection.execute("SELECT id, username, created_at, is_premium, premium_until, balance FROM users ORDER BY created_at DESC").fetchall()
                 updates = connection.execute("SELECT id, title, body, tag, created_at FROM updates ORDER BY created_at DESC").fetchall()
                 payments = connection.execute("SELECT payments.id, users.username, payments.platform, payments.code, payments.amount, payments.status, payments.created_at FROM payments JOIN users ON users.id=payments.user_id ORDER BY payments.created_at DESC").fetchall()
                 logs = connection.execute("SELECT event, created_at FROM logs ORDER BY created_at DESC LIMIT 25").fetchall()
                 logs_count = connection.execute("SELECT COUNT(*) FROM logs").fetchone()[0]
 
-            premium_count = sum(1 for u in users if u["is_premium"])
+            premium_count = sum(1 for u in users if u["is_premium"] or u["premium_until"] > int(time.time()))
             pending_count = sum(1 for p in payments if p["status"] == "BEKLEMEDE")
 
             user_rows = ""
             for row in users:
-                p_badge = ' <span class="premium-badge">PREMIUM</span>' if row["is_premium"] else '<span class="status-tag beklemede" style="background:#ffffff0a; color:#888;">STANDART</span>'
+                is_prem_now = bool(row["is_premium"]) or row["premium_until"] > int(time.time())
+                p_badge = ' <span class="premium-badge">PREMIUM</span>' if is_prem_now else '<span class="status-tag beklemede" style="background:#ffffff0a; color:#888;">STANDART</span>'
+                if row["premium_until"] > int(time.time()):
+                    exp_info = f'<span class="muted" style="font-size: 12px;">bitiş: {time.strftime("%Y-%m-%d", time.localtime(row["premium_until"]))}</span>'
+                elif row["is_premium"]:
+                    exp_info = '<span class="muted" style="font-size: 12px;">süresiz</span>'
+                else:
+                    exp_info = ""
                 balance_val = float(row["balance"])
                 
                 balance_actions = f"""
@@ -1239,7 +1293,7 @@ class Handler(BaseHTTPRequestHandler):
                     <button class="button small primary" type="submit">Premium Yap</button>
                 </form>
                 """
-                user_rows += f"<tr><td>{esc(row['username'])}</td><td>{p_badge}</td><td>{balance_val:.2f} TL</td><td>{time.strftime('%Y-%m-%d %H:%M', time.localtime(row['created_at']))}</td><td style='display: flex; gap: 10px; align-items: center;'>{toggle_btn} {balance_actions}</td></tr>"
+                user_rows += f"<tr><td>{esc(row['username'])}</td><td>{p_badge} {exp_info}</td><td>{balance_val:.2f} TL</td><td>{time.strftime('%Y-%m-%d %H:%M', time.localtime(row['created_at']))}</td><td style='display: flex; gap: 10px; align-items: center;'>{toggle_btn} {balance_actions}</td></tr>"
 
             update_rows = "".join(f"<tr><td><span class=\"update-tag\">{esc(row['tag'])}</span></td><td>{esc(row['title'])}</td><td>{format_date(row['created_at'])}</td></tr>" for row in updates)
 
@@ -1447,7 +1501,31 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/register", "/login", "/admin/login", "/payment/submit", "/wheel/spin") and not rate_allowed(ip, path.strip("/")):
             self.rate_limit_response()
             return
-        if path == "/register":
+        if path == "/paid-cheats/purchase":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            plan_key = fields.get("plan", "").strip()
+            plan = PAID_CHEATS_PLANS.get(plan_key)
+            if not plan:
+                self.redirect("/paid-cheats?msg=Gecersiz+plan&msg_type=error")
+                return
+            price = plan["price"]
+            with db() as connection:
+                row = connection.execute("SELECT balance, premium_until FROM users WHERE id=?", (current[1],)).fetchone()
+                balance = float(row["balance"]) if row else 0.0
+                if balance < price:
+                    self.redirect("/paid-cheats?msg=Bakiyeniz+yetersiz.+Once+bakiye+yukleyin.&msg_type=error")
+                    return
+                base = max(int(time.time()), int(row["premium_until"]) if row else 0)
+                new_until = base + plan["days"] * 86400
+                connection.execute("UPDATE users SET balance=balance-?, premium_until=? WHERE id=?", (price, new_until, current[1]))
+            log_event(f"[PREMIUM] '{username}' kullanıcısı bakiyesiyle {plan['days']} gün premium erişim satın aldı ({price:.0f} TL).")
+            self.redirect("/paid-cheats?msg=Erisim+aktif.+Suresi:+{days}gn.&msg_type=success".replace("{days}", str(plan["days"])))
+        elif path == "/register":
             name = fields.get("username", "").strip()
             password = fields.get("password", "")
             captcha_ans = fields.get("captcha_answer", "")
@@ -1667,10 +1745,14 @@ class Handler(BaseHTTPRequestHandler):
                 return
             log_msg = None
             with db() as connection:
-                user_row = connection.execute("SELECT username, is_premium FROM users WHERE id=?", (user_id,)).fetchone()
+                user_row = connection.execute("SELECT username, is_premium, premium_until FROM users WHERE id=?", (user_id,)).fetchone()
                 if user_row:
-                    new_status = 0 if user_row["is_premium"] else 1
-                    connection.execute("UPDATE users SET is_premium=? WHERE id=?", (new_status, user_id))
+                    is_prem_now = bool(user_row["is_premium"]) or user_row["premium_until"] > int(time.time())
+                    new_status = 0 if is_prem_now else 1
+                    if new_status:
+                        connection.execute("UPDATE users SET is_premium=1, premium_until=0 WHERE id=?", (user_id,))
+                    else:
+                        connection.execute("UPDATE users SET is_premium=0, premium_until=0 WHERE id=?", (user_id,))
                     status_str = "PREMIUM yapıldı" if new_status else "PREMIUM iptal edildi"
                     log_msg = f"[KULLANICI] '{user_row['username']}' kullanıcısının premium durumu değiştirildi: {status_str}"
             if log_msg:
