@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import html
 import io
+import json
 import os
 import random
 import re
@@ -72,6 +73,7 @@ MAX_PROJECT_SIZE = 25 * 1024 * 1024
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 ADMIN_TTL = 60 * 60 * 12
+LOADER_TTL = 60 * 5  # loader token ömrü: 5 dakika
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,24}$")
 FREE_SPIN_COOLDOWN = 60 * 60 * 4  # 4 saat
 
@@ -85,6 +87,7 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "payment/submit": (5, 300),
     "admin/login": (5, 300),
     "wheel/spin": (10, 300),
+    "loader/login": (10, 300),
 }
 
 
@@ -450,6 +453,34 @@ def is_admin_cookie(value: str | None) -> bool:
     return hmac.compare_digest(signature, expected)
 
 
+def loader_token_value(user_id: int) -> str:
+    expires = int(time.time()) + LOADER_TTL
+    nonce = secrets.token_urlsafe(16)
+    payload = f"{user_id}:{expires}:{nonce}"
+    signature = hmac.new(APP_SECRET, ("loader:" + payload).encode(), hashlib.sha256).hexdigest()
+    return f"{payload}:{signature}"
+
+
+def verify_loader_token(value: str | None) -> int | None:
+    if not value:
+        return None
+    parts = value.split(":", 3)
+    if len(parts) != 4:
+        return None
+    user_id, expires, nonce, signature = parts
+    if not nonce:
+        return None
+    try:
+        uid = int(user_id)
+        if int(expires) < int(time.time()):
+            return None
+    except ValueError:
+        return None
+    payload = f"{uid}:{expires}:{nonce}"
+    expected = hmac.new(APP_SECRET, ("loader:" + payload).encode(), hashlib.sha256).hexdigest()
+    return uid if hmac.compare_digest(signature, expected) else None
+
+
 def esc(value: str) -> str:
     return html.escape(value, quote=True)
 
@@ -775,6 +806,34 @@ class Handler(BaseHTTPRequestHandler):
             ),
             HTTPStatus.TOO_MANY_REQUESTS,
         )
+
+    def send_json(self, data: dict, status: int = 200) -> None:
+        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("Cache-Control", "no-store")
+        if COOKIE_SECURE:
+            self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def parse_json(self) -> dict[str, str]:
+        try:
+            length = max(0, min(int(self.headers.get("Content-Length", "0")), 16_384))
+        except (ValueError, TypeError):
+            length = 0
+        raw = self.rfile.read(length).decode("utf-8", "replace")
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): str(v) for k, v in data.items()}
 
 
 
@@ -1578,6 +1637,8 @@ class Handler(BaseHTTPRequestHandler):
         is_multipart = content_type.lower().startswith("multipart/form-data")
         if is_multipart:
             fields: dict[str, str] = {}
+        elif content_type.lower().startswith("application/json"):
+            fields = self.parse_json()
         else:
             fields = self.parse_form()
         current = self.current_user()
@@ -1672,6 +1733,66 @@ class Handler(BaseHTTPRequestHandler):
             with db() as connection:
                 connection.execute("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)", (token_digest(token), row["id"], int(time.time()) + SESSION_TTL))
             self.redirect("/", token)
+        elif path == "/api/loader/login":
+            if not rate_allowed(ip, "loader/login"):
+                self.send_json({"ok": False, "error": "rate_limited"}, HTTPStatus.TOO_MANY_REQUESTS)
+                return
+            name = fields.get("username", "").strip()
+            password = fields.get("password", "")
+            if not name or not password:
+                self.send_json({"ok": False, "error": "eksik_bilgi"}, 400)
+                return
+            with db() as connection:
+                if IS_POSTGRES:
+                    row = connection.execute("SELECT id,username,password_hash FROM users WHERE LOWER(username)=LOWER(?)", (name,)).fetchone()
+                else:
+                    row = connection.execute("SELECT id,username,password_hash FROM users WHERE username=? COLLATE NOCASE", (name,)).fetchone()
+            if not row or not password_matches(password, row["password_hash"]):
+                time.sleep(1.0)
+                self.send_json({"ok": False, "error": "kimlik_dogrulanamadi"}, 401)
+                return
+            if not self.is_user_premium(row["id"]):
+                self.send_json({"ok": False, "error": "premium_gerekli", "premium": False})
+                return
+            token = loader_token_value(row["id"])
+            expiry = self.premium_expiry(row["id"])
+            log_event(f"[LOADER] '{row['username']}' loader'a giriş yaptı.")
+            self.send_json({"ok": True, "token": token, "premium": True, "premium_until": expiry, "username": row["username"]})
+        elif path == "/api/loader/download":
+            token = fields.get("token", "").strip()
+            user_id = verify_loader_token(token)
+            if not user_id:
+                self.send_json({"ok": False, "error": "token_gecersiz"}, 401)
+                return
+            with db() as connection:
+                row = connection.execute("SELECT username FROM users WHERE id=?", (user_id,)).fetchone()
+            if not row or not self.is_user_premium(user_id):
+                self.send_json({"ok": False, "error": "premium_gerekli"}, 403)
+                return
+            files = []
+            if PAID_CHEATS_DIR.is_dir():
+                for f in sorted(PAID_CHEATS_DIR.iterdir(), key=lambda p: p.name.lower()):
+                    if f.is_file() and f.name.lower() != "readme.md":
+                        files.append(f)
+            if not files:
+                self.send_json({"ok": False, "error": "icerik_yok"}, 404)
+                return
+            serial = generate_license_serial()
+            zip_data = make_watermarked_zip(row["username"], serial, files)
+            with db() as connection:
+                connection.execute("INSERT INTO downloads(user_id, filename, serial, ip, created_at) VALUES(?,?,?,?,?)", (user_id, "loader.zip", serial, ip, int(time.time())))
+            log_event(f"[LOADER] '{row['username']}' ücretli içeriği loader'dan indirdi (lisans {serial}).")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Length", str(len(zip_data)))
+            self.send_header("Content-Disposition", 'attachment; filename="BigaCheat-Premium.zip"')
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "same-origin")
+            if COOKIE_SECURE:
+                self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+            self.end_headers()
+            self.wfile.write(zip_data)
         elif path == "/logout":
             token = self.session_cookie()
             if token:
