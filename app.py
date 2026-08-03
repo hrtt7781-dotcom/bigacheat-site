@@ -187,12 +187,14 @@ def _migrate(connection) -> None:
                 """CREATE TABLE IF NOT EXISTS payments (
                     id BIGSERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL REFERENCES users(id),
+                    platform TEXT NOT NULL DEFAULT 'STEAM',
                     code TEXT NOT NULL,
                     amount TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'BEKLEMEDE',
                     created_at BIGINT NOT NULL
                 )"""
             )
+            connection.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'STEAM'")
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS logs (
                     id BIGSERIAL PRIMARY KEY,
@@ -273,6 +275,7 @@ def _migrate(connection) -> None:
                 """CREATE TABLE IF NOT EXISTS payments (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER NOT NULL,
+                    platform TEXT NOT NULL DEFAULT 'STEAM',
                     code TEXT NOT NULL,
                     amount TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'BEKLEMEDE',
@@ -280,6 +283,11 @@ def _migrate(connection) -> None:
                     FOREIGN KEY(user_id) REFERENCES users(id)
                 )"""
             )
+            try:
+                connection.execute("ALTER TABLE payments ADD COLUMN platform TEXT NOT NULL DEFAULT 'STEAM'")
+                connection.commit()
+            except sqlite3.OperationalError:
+                pass
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS logs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -442,6 +450,22 @@ def human_size(size: int) -> str:
 
 def format_date(timestamp: int) -> str:
     return time.strftime("%d.%m.%Y", time.localtime(timestamp))
+
+
+PLATFORM_NAMES = {
+    "STEAM": "Steam",
+    "GPLAY": "Google Play",
+}
+
+
+def validate_game_code(platform: str, code: str) -> bool:
+    """Steam ve Google Play kodlarının biçimini doğrular; kopya/yanlış formatı eler."""
+    code = code.strip().upper()
+    if platform == "STEAM":
+        return bool(re.fullmatch(r"[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}", code))
+    if platform == "GPLAY":
+        return bool(re.fullmatch(r"[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}", code))
+    return False
 
 
 def page(title: str, body: str, user: str | None = None, message: str = "", message_type: str = "", is_premium: bool = False, csrf_token: str = "") -> str:
@@ -852,7 +876,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.redirect("/login")
                 return
             with db() as connection:
-                rows = connection.execute("SELECT code, amount, status, created_at FROM payments WHERE user_id=? ORDER BY created_at DESC", (user[1],)).fetchall()
+                rows = connection.execute("SELECT platform, code, amount, status, created_at FROM payments WHERE user_id=? ORDER BY created_at DESC", (user[1],)).fetchall()
             
             payment_rows = ""
             for r in rows:
@@ -862,6 +886,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     masked_code = code_raw
                 
+                platform_esc = esc(PLATFORM_NAMES.get(r["platform"], r["platform"]))
                 status_esc = esc(r["status"])
                 if r["status"] == "ONAYLANDI":
                     status_class = "onaylandi"
@@ -871,7 +896,7 @@ class Handler(BaseHTTPRequestHandler):
                     status_class = "beklemede"
                 
                 status_tag = f'<span class="status-tag {status_class}">{status_esc}</span>'
-                payment_rows += f'<tr><td>{esc(masked_code)}</td><td>{esc(r["amount"])}</td><td>{format_date(r["created_at"])}</td><td>{status_tag}</td></tr>'
+                payment_rows += f'<tr><td>{platform_esc}</td><td>{esc(masked_code)}</td><td>{esc(r["amount"])}</td><td>{format_date(r["created_at"])}</td><td>{status_tag}</td></tr>'
 
             table_content = f"""
             <div class="table-card" style="margin-top: 30px; max-width: none; padding: 20px 0 0 0; background: transparent; border: none;">
@@ -879,6 +904,7 @@ class Handler(BaseHTTPRequestHandler):
                 <table>
                     <thead>
                         <tr>
+                            <th>Platform</th>
                             <th>Kod (Maskeli)</th>
                             <th>Tutar</th>
                             <th>Tarih</th>
@@ -896,10 +922,16 @@ class Handler(BaseHTTPRequestHandler):
             <section class="auth-card upload-card" style="margin-top: 65px; width: min(650px, calc(100% - 40px));">
                 <div class="eyebrow">BAKİYE YÜKLEME ALANI</div>
                 <h1>Bakiye Yükle</h1>
-                <p class="lead" style="font-size: 15px; margin: 10px 0 20px;">Biga Cheat hile bakiyenizi yüklemek için 100 TL, 250 TL veya 500 TL değerinde bir Google Play Hediye Kartı kodu gönderin. Yönetici onayladığında bakiye hesabınıza otomatik yüklenecektir.</p>
+                <p class="lead" style="font-size: 15px; margin: 10px 0 20px;">Biga Cheat bakiyenizi yüklemek için bir Steam veya Google Play hediye kodu gönderin. Kodunuz format olarak doğrulanır ve yönetici onayladığında bakiye hesabınıza otomatik yüklenir.</p>
                 
                 <form method="post" action="/payment/submit" class="form">
                     <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+                    <label>Platform
+                        <select name="platform" required style="width: 100%; border: 1px solid #ffffff18; border-radius: 9px; background: #070d15; color: white; padding: 13px 14px; font: inherit; outline: none;">
+                            <option value="STEAM">Steam Hediye Kodu</option>
+                            <option value="GPLAY">Google Play Hediye Kodu</option>
+                        </select>
+                    </label>
                     <label>Hediye Kartı Tutarı
                         <select name="amount" required style="width: 100%; border: 1px solid #ffffff18; border-radius: 9px; background: #070d15; color: white; padding: 13px 14px; font: inherit; outline: none;">
                             <option value="100 TL">100 TL</option>
@@ -907,8 +939,8 @@ class Handler(BaseHTTPRequestHandler):
                             <option value="500 TL">500 TL</option>
                         </select>
                     </label>
-                    <label>Google Play Kodunuz
-                        <input name="code" placeholder="Örn: XXXX-XXXX-XXXX-XXXX" required maxlength="50" autocomplete="off">
+                    <label>Kodunuz
+                        <input name="code" placeholder="Steam: XXXXX-XXXXX-XXXXX | Google: XXXX-XXXX-XXXX-XXXX" required maxlength="50" autocomplete="off">
                     </label>
                     <button class="button primary wide" type="submit">Bakiye Bildir</button>
                 </form>
@@ -1120,7 +1152,7 @@ class Handler(BaseHTTPRequestHandler):
             with db() as connection:
                 users = connection.execute("SELECT id, username, created_at, is_premium, balance FROM users ORDER BY created_at DESC").fetchall()
                 updates = connection.execute("SELECT id, title, body, tag, created_at FROM updates ORDER BY created_at DESC").fetchall()
-                payments = connection.execute("SELECT payments.id, users.username, payments.code, payments.amount, payments.status, payments.created_at FROM payments JOIN users ON users.id=payments.user_id ORDER BY payments.created_at DESC").fetchall()
+                payments = connection.execute("SELECT payments.id, users.username, payments.platform, payments.code, payments.amount, payments.status, payments.created_at FROM payments JOIN users ON users.id=payments.user_id ORDER BY payments.created_at DESC").fetchall()
                 logs = connection.execute("SELECT event, created_at FROM logs ORDER BY created_at DESC LIMIT 25").fetchall()
                 logs_count = connection.execute("SELECT COUNT(*) FROM logs").fetchone()[0]
 
@@ -1162,12 +1194,14 @@ class Handler(BaseHTTPRequestHandler):
             invoice_rows = ""
             for row in payments:
                 status_esc = esc(row["status"])
+                plat_esc = esc(PLATFORM_NAMES.get(row["platform"], row["platform"]))
+                plat_badge = f'<span class="update-tag">{plat_esc}</span>'
                 if row["status"] == "ONAYLANDI":
                     status_badge = f'<span class="status-tag onaylandi">{status_esc}</span>'
-                    invoice_rows += f"<tr><td>{esc(row['username'])}</td><td><code>{esc(row['code'])}</code></td><td>{esc(row['amount'])}</td><td>{format_date(row['created_at'])}</td><td>{status_badge}</td></tr>"
+                    invoice_rows += f"<tr><td>{plat_badge}</td><td>{esc(row['username'])}</td><td><code>{esc(row['code'])}</code></td><td>{esc(row['amount'])}</td><td>{format_date(row['created_at'])}</td><td>{status_badge}</td></tr>"
                 elif row["status"] == "REDDEDİLDİ":
                     status_badge = f'<span class="status-tag reddedildi">{status_esc}</span>'
-                    invoice_rows += f"<tr><td>{esc(row['username'])}</td><td><code>{esc(row['code'])}</code></td><td>{esc(row['amount'])}</td><td>{format_date(row['created_at'])}</td><td>{status_badge}</td></tr>"
+                    invoice_rows += f"<tr><td>{plat_badge}</td><td>{esc(row['username'])}</td><td><code>{esc(row['code'])}</code></td><td>{esc(row['amount'])}</td><td>{format_date(row['created_at'])}</td><td>{status_badge}</td></tr>"
                 else:
                     status_badge = f'<span class="status-tag beklemede">{status_esc}</span>'
                     actions = f"""
@@ -1182,7 +1216,7 @@ class Handler(BaseHTTPRequestHandler):
                         <button class="button ghost small" style="border-color:#ff44663d; color:#ff4466;" type="submit">Reddet</button>
                     </form>
                     """
-                    pending_rows += f"<tr><td>{esc(row['username'])}</td><td><code>{esc(row['code'])}</code></td><td>{esc(row['amount'])}</td><td>{format_date(row['created_at'])}</td><td>{status_badge}</td><td>{actions}</td></tr>"
+                    pending_rows += f"<tr><td>{plat_badge}</td><td>{esc(row['username'])}</td><td><code>{esc(row['code'])}</code></td><td>{esc(row['amount'])}</td><td>{format_date(row['created_at'])}</td><td>{status_badge}</td><td>{actions}</td></tr>"
 
             log_rows = "".join(f"<tr><td>{format_date(row['created_at'])} {time.strftime('%H:%M:%S', time.localtime(row['created_at']))}</td><td>{esc(row['event'])}</td></tr>" for row in logs)
 
@@ -1222,6 +1256,7 @@ class Handler(BaseHTTPRequestHandler):
         <table>
             <thead>
                 <tr>
+                    <th>Platform</th>
                     <th>Kullanıcı</th>
                     <th>Kod</th>
                     <th>Tutar</th>
@@ -1231,7 +1266,7 @@ class Handler(BaseHTTPRequestHandler):
                 </tr>
             </thead>
             <tbody>
-                {pending_rows or '<tr><td colspan="6" class="muted">Bekleyen ödeme talebi yok.</td></tr>'}
+                {pending_rows or '<tr><td colspan="7" class="muted">Bekleyen ödeme talebi yok.</td></tr>'}
             </tbody>
         </table>
     </section>
@@ -1243,6 +1278,7 @@ class Handler(BaseHTTPRequestHandler):
         <table>
             <thead>
                 <tr>
+                    <th>Platform</th>
                     <th>Kullanıcı</th>
                     <th>Kod</th>
                     <th>Tutar</th>
@@ -1251,7 +1287,7 @@ class Handler(BaseHTTPRequestHandler):
                 </tr>
             </thead>
             <tbody>
-                {invoice_rows or '<tr><td colspan="5" class="muted">Onaylanmış veya reddedilmiş ödeme bulunmuyor.</td></tr>'}
+                {invoice_rows or '<tr><td colspan="6" class="muted">Onaylanmış veya reddedilmiş ödeme bulunmuyor.</td></tr>'}
             </tbody>
         </table>
     </section>
@@ -1446,13 +1482,25 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
                 return
             amount = fields.get("amount", "").strip()
-            code = fields.get("code", "").strip()
+            platform = fields.get("platform", "").strip().upper()
+            code = fields.get("code", "").strip().upper()
+            if platform not in ("STEAM", "GPLAY"):
+                self.redirect("/payment?msg=Gecersiz+platform&msg_type=error")
+                return
             if not amount or not code or len(code) > 50:
                 self.redirect("/payment?msg=Gecersiz+kod+veya+tutar&msg_type=error")
                 return
+            if not validate_game_code(platform, code):
+                hint = "XXXXX-XXXXX-XXXXX" if platform == "STEAM" else "XXXX-XXXX-XXXX-XXXX"
+                self.redirect(f"/payment?msg=Kod+formati+hatali.+Dogru+format:+{hint}&msg_type=error")
+                return
             with db() as connection:
-                connection.execute("INSERT INTO payments(user_id, code, amount, status, created_at) VALUES(?,?,?,?,?)", (current[1], code, amount, "BEKLEMEDE", int(time.time())))
-            log_event(f"[ÖDEME] '{username}' kullanıcısı '{amount}' değerinde kod bildirdi: {code[:4]}...{code[-4:] if len(code) > 4 else ''}")
+                dup = connection.execute("SELECT id FROM payments WHERE LOWER(code)=LOWER(?)", (code,)).fetchone()
+                if dup:
+                    self.redirect("/payment?msg=Bu+kod+zaten+kullanilmis&msg_type=error")
+                    return
+                connection.execute("INSERT INTO payments(user_id, platform, code, amount, status, created_at) VALUES(?,?,?,?,?,?)", (current[1], platform, code, amount, "BEKLEMEDE", int(time.time())))
+            log_event(f"[ÖDEME] '{username}' kullanıcısı {PLATFORM_NAMES[platform]} {amount} değerinde kod bildirdi: {code[:4]}...{code[-4:] if len(code) > 4 else ''}")
             self.redirect("/payment?msg=Kod+basariyla+gonderildi.+Yonetici+tarafindan+onaylanacaktir.&msg_type=success")
         elif path == "/admin/login":
             if not ADMIN_PASSWORD or fields.get("username", "").strip().lower() != ADMIN_USERNAME.lower() or not hmac.compare_digest(fields.get("password", ""), ADMIN_PASSWORD):
