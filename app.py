@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, quote, unquote
 
 
 ROOT = Path(__file__).resolve().parent
@@ -56,6 +56,7 @@ def _resolve_data_dir() -> Path:
 DATA_DIR = _resolve_data_dir()
 DB_PATH = DATA_DIR / "data.sqlite3"
 DOWNLOAD_PATH = ROOT / "downloads" / "Biga Cheat-Cs2-Modified.exe"
+PAID_CHEATS_DIR = ROOT / "paid_cheats"
 PROJECTS_PATH = DATA_DIR / "projects"
 APP_SECRET = os.environ.get("APP_SECRET", "").encode()
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0") == "1"
@@ -484,9 +485,9 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
             
     balance_pill = f'<span class="balance-pill">Bakiye: {balance_val:.2f} TL</span>' if user else ""
     account = (
-        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
+        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
         if user
-        else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
+        else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
     )
     msg_class = "notice " + message_type if message_type else "notice"
     notice = f'<div class="{msg_class}">{esc(message)}</div>' if message else ""
@@ -801,6 +802,61 @@ class Handler(BaseHTTPRequestHandler):
             q_text, c_val = generate_captcha()
             fields = f'<label>Kullanıcı adı<input name="username" autocomplete="username" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_]+"></label><label>Şifre<input name="password" type="password" autocomplete="new-password" required minlength="8"></label><label>Şifre tekrar<input name="password2" type="password" autocomplete="new-password" required minlength="8"></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
             self.send_html(form_page("Kayıt ol", "/register", "Hesap oluştur", fields, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), cookies=[("captcha", c_val)])
+        elif path == "/paid-cheats":
+            if not user:
+                self.redirect("/login")
+                return
+            if not is_premium:
+                self.redirect("/payment?msg=Bu+alana+erismek+icin+premium+uyelik+gerekli.&msg_type=error")
+                return
+            files = []
+            if PAID_CHEATS_DIR.is_dir():
+                for f in sorted(PAID_CHEATS_DIR.iterdir(), key=lambda p: p.name.lower()):
+                    if f.is_file() and f.name.lower() != "readme.md":
+                        files.append(f)
+            readme_txt = ""
+            if (PAID_CHEATS_DIR / "README.md").is_file():
+                try:
+                    readme_txt = (PAID_CHEATS_DIR / "README.md").read_text("utf-8", "replace")
+                except Exception:
+                    readme_txt = ""
+            file_cards = ""
+            for f in files:
+                file_cards += f'<article class="project-card"><div><span class="panel-icon">PREMIUM</span><h2>{esc(f.name)}</h2><p class="muted">{human_size(f.stat().st_size)}</p></div><a class="button primary" href="/paid-cheats/download/{quote(f.name)}">İndir</a></article>'
+            body = f"""<section class="page-head"><div><div class="eyebrow">PREMIUM VAULT</div><h1>Ücretli Hileler</h1><p class="lead">Premium üyelerin indirebileceği özel sürümler. Para yatırdıktan sonra buradan indirebilirsin.</p></div></section>
+<section class="project-list">{file_cards or '<div class="empty-state"><h2>İçerik hazır değil</h2><p class="muted">Yönetici henüz premium içerik yüklemedi.</p></div>'}</section>
+<section class="auth-card" style="margin-top: 30px; max-width: none;"><div class="eyebrow">KURULUM</div><h2>Nasıl Kullanılır?</h2><pre style="white-space: pre-wrap; background: #ffffff04; border: 1px solid var(--line); border-radius: 10px; padding: 16px; font-size: 13px; color: #cfd8e3;">{esc(readme_txt) if readme_txt else 'Kurulum notu yakında eklenecek.'}</pre></section>"""
+            self.send_html(page("Ücretli Hileler", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path.startswith("/paid-cheats/download/"):
+            if not user:
+                self.redirect("/login")
+                return
+            if not is_premium:
+                self.redirect("/payment")
+                return
+            fname = unquote(path.rsplit("/", 1)[1])
+            safe = Path(fname).name
+            if safe != fname or safe.lower() == "readme.md":
+                self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+                return
+            file_path = PAID_CHEATS_DIR / safe
+            if not file_path.is_file() or PAID_CHEATS_DIR.resolve() not in file_path.resolve().parents:
+                self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>Dosya bulunamadı</h1></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+                return
+            size = file_path.stat().st_size
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(size))
+            self.send_header("Content-Disposition", f'attachment; filename="{safe}"')
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "same-origin")
+            if COOKIE_SECURE:
+                self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+            self.end_headers()
+            with file_path.open("rb") as file:
+                while chunk := file.read(1024 * 1024):
+                    self.wfile.write(chunk)
         elif path == "/download":
             if not user:
                 self.redirect("/login")
@@ -1218,6 +1274,8 @@ class Handler(BaseHTTPRequestHandler):
             log_rows = "".join(f"<tr><td>{format_date(row['created_at'])} {time.strftime('%H:%M:%S', time.localtime(row['created_at']))}</td><td>{esc(row['event'])}</td></tr>" for row in logs)
 
             file_status = f"{DOWNLOAD_PATH.stat().st_size / 1024 / 1024:.2f} MB" if DOWNLOAD_PATH.is_file() else "Dosya yok"
+            paid_files = [f.name for f in PAID_CHEATS_DIR.iterdir() if f.is_file()] if PAID_CHEATS_DIR.is_dir() else []
+            paid_status = ", ".join(paid_files) if paid_files else "Dosya yok"
             
             body = f"""<section class="admin-head"><div><div class="eyebrow">CONTROL CENTER</div><h1>Yönetim paneli</h1><p class="muted">Kayıtlar, ödemeler, sistem günlükleri ve duyurular.</p></div><a class="button ghost" href="/admin/logout">Paneleden çık</a></section>
 <section class="stats" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
@@ -1302,6 +1360,25 @@ class Handler(BaseHTTPRequestHandler):
 </section>
 
 <section class="admin-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 30px; align-items: start;">
+    <section class="table-card">
+        <h2>İndirme Alanı Durumu</h2>
+        <p class="muted" style="margin-bottom: 12px;">Bedava sürüm (<code>downloads/</code>) ve ücretli sürümler (<code>paid_cheats/</code>) için yüklenmiş dosyalar.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Bölüm</th>
+                    <th>Dosya(lar)</th>
+                    <th>Durum</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Bedava sürüm</td><td><code>Biga Cheat-Cs2-Modified.exe</code></td><td><span class="status-tag {'onaylandi' if DOWNLOAD_PATH.is_file() else 'reddedildi'}">{file_status}</span></td></tr>
+                <tr><td>Ücretli Hileler</td><td><code>{esc(paid_status)}</code></td><td><span class="status-tag {'onaylandi' if paid_files else 'reddedildi'}">{len(paid_files)} dosya</span></td></tr>
+            </tbody>
+        </table>
+        <p class="muted" style="margin-top: 10px; font-size: 12px;">Dosyalar projenin <code>downloads/</code> ve <code>paid_cheats/</code> klasörlerine eklenir ve GitHub üzerinden canlıya yüklenir.</p>
+    </section>
+
     <section class="table-card">
         <h2>Site Sistem Kayıtları (Son 25 Olay)</h2>
         <table>
