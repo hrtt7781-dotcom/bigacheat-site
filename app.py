@@ -509,6 +509,12 @@ class Handler(BaseHTTPRequestHandler):
                 return value
         return None
 
+    def client_ip(self) -> str:
+        forwarded = self.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+        return self.client_address[0] if self.client_address else "unknown"
+
     def send_html(self, content: str, status: int = 200, cookies: list[tuple[str, str]] | None = None) -> None:
         data = content.encode("utf-8")
         self.send_response(status)
@@ -1187,12 +1193,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        fields = self.parse_form()
+        content_type = self.headers.get("Content-Type", "")
+        is_multipart = content_type.lower().startswith("multipart/form-data")
+        if is_multipart:
+            fields: dict[str, str] = {}
+        else:
+            fields = self.parse_form()
         current = self.current_user()
         username = current[0] if current else None
         is_premium = self.is_user_premium(current[1]) if current else False
         csrf_tok = csrf_for(self)
-        ip = self.client_address[0] if self.client_address else "unknown"
+        ip = self.client_ip()
         if path in ("/register", "/login", "/admin/login", "/payment/submit", "/wheel/spin") and not rate_allowed(ip, path.strip("/")):
             self.rate_limit_response()
             return
@@ -1470,9 +1481,18 @@ class Handler(BaseHTTPRequestHandler):
                 rewards = {1: 10.0, 2: 15.0, 3: 20.0, 4: 25.0, 5: 30.0, 6: 35.0, 7: 50.0}
                 active_day = ((new_streak - 1) % 7) + 1
                 reward_amt = rewards[active_day]
-                
+
                 current_time = int(time.time())
-                connection.execute("UPDATE users SET balance=balance+?, daily_streak=?, last_daily_claim=? WHERE id=?", (reward_amt, new_streak, current_time, current[1]))
+                # Atomic guard: only one concurrent request can claim per day.
+                today_start = int(datetime.datetime.combine(datetime.date.today(), datetime.time.min).timestamp())
+                cur = connection.execute(
+                    "UPDATE users SET balance=balance+?, daily_streak=?, last_daily_claim=? WHERE id=? AND last_daily_claim<?",
+                    (reward_amt, new_streak, current_time, current[1], today_start),
+                )
+                if cur.rowcount == 0:
+                    connection.rollback()
+                    self.redirect("/daily?msg=Bugunun+odulunu+zaten+aldiniz&msg_type=error")
+                    return
                 
                 log_msg = f"[GÜNLÜK] '{username}' kullanıcısı Gün {active_day} günlük ödülünü aldı: {reward_amt:.2f} TL. (Yeni Seri: {new_streak})"
             log_event(log_msg)
