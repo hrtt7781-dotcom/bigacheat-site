@@ -11,9 +11,12 @@ services:
         sync: false
       - key: ADMIN_PASSWORD
         sync: false
+      - key: DATABASE_URL
+        sync: false
       - key: COOKIE_SECURE
         value: "1"
-      - key: DATABASE_URL
-        value: "postgresql://neondb_owner:npg_cn1h9ifXeqzJ@ep-lucky-water-assfyizy.c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require"
-    healthCheckPath: /
-
+    healthCheckPath: /health
+    disk:
+      name: biga-cheat-data
+      mountPath: /data
+      sizeGB: 1

@@ -1682,7 +1682,8 @@ def main() -> None:
     if not APP_SECRET:
         raise RuntimeError("APP_SECRET env var is required")
     if not ADMIN_PASSWORD:
-        raise RuntimeError("ADMIN_PASSWORD env var is required")
+        print("UYARI: ADMIN_PASSWORD ayarlanmamış. Yönetici paneli girişi devre dışı. "
+              "Render dashboard'da ADMIN_PASSWORD ortam değişkenini ayarlayın.")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     try:
         probe = DATA_DIR / ".write_probe"
@@ -1698,7 +1699,7 @@ def main() -> None:
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8080"))
     print(f"Biga Cheat site listening on http://127.0.0.1:{port}")
-    print(f"Veritabanı: {DB_PATH}")
+    print(f"Veritabanı: {'PostgreSQL (DATABASE_URL)' if IS_POSTGRES else DB_PATH}")
     ThreadingHTTPServer((host, port), Handler).serve_forever()
 
 
