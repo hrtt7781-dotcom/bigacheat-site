@@ -20,13 +20,27 @@ from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parent
 
+# DATABASE_URL verilirse PostgreSQL (örn. Neon); verilmezse yerelde SQLite.
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+IS_POSTGRES = bool(DATABASE_URL)
+
+if IS_POSTGRES:
+    import psycopg2  # noqa: E402
+    import psycopg2.errors  # noqa: E402
+    import psycopg2.extras  # noqa: E402
+
+    DB_UNIQUE_ERROR = psycopg2.errors.UniqueViolation
+else:
+    DB_UNIQUE_ERROR = sqlite3.IntegrityError
+
 
 def _resolve_data_dir() -> Path:
     render = os.environ.get("RENDER") == "true"
     candidate = Path("/data")
     if candidate.is_dir():
         return candidate
-    if render:
+    # SQLite kullanıyorken kalıcı disk şarttır; Postgres ile veri haricidir.
+    if render and not IS_POSTGRES:
         raise RuntimeError(
             "Render'da kalıcı disk /data olarak bağlanmamış. "
             "render.yaml'deki disk bölümünü kontrol et ve diski servise bağla; "
@@ -116,100 +130,160 @@ _db_migrated = threading.Lock()
 _db_done = False
 
 
-def _migrate(connection: sqlite3.Connection) -> None:
+def _migrate(connection) -> None:
     global _db_done
     if _db_done:
         return
     with _db_migrated:
         if _db_done:
             return
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("""CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                password_hash TEXT NOT NULL,
-                is_premium INTEGER NOT NULL DEFAULT 0,
-                created_at INTEGER NOT NULL
-            )"""
-        )
-        try:
-            connection.execute("ALTER TABLE users ADD COLUMN is_premium INTEGER NOT NULL DEFAULT 0")
-            connection.commit()
-        except sqlite3.OperationalError:
-            pass
+        if IS_POSTGRES:
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS users (
+                    id BIGSERIAL PRIMARY KEY,
+                    username TEXT NOT NULL UNIQUE,
+                    password_hash TEXT NOT NULL,
+                    is_premium INTEGER NOT NULL DEFAULT 0,
+                    balance DOUBLE PRECISION NOT NULL DEFAULT 0,
+                    last_daily_claim BIGINT NOT NULL DEFAULT 0,
+                    daily_streak INTEGER NOT NULL DEFAULT 0,
+                    last_free_spin BIGINT NOT NULL DEFAULT 0,
+                    created_at BIGINT NOT NULL
+                )"""
+            )
+            connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower ON users (LOWER(username))")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS sessions (
+                    token_hash TEXT PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    expires_at BIGINT NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS projects (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    name TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    stored_path TEXT NOT NULL,
+                    size BIGINT NOT NULL,
+                    created_at BIGINT NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS updates (
+                    id BIGSERIAL PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    tag TEXT NOT NULL DEFAULT 'GÜNCELLEME',
+                    created_at BIGINT NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS payments (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    code TEXT NOT NULL,
+                    amount TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'BEKLEMEDE',
+                    created_at BIGINT NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS logs (
+                    id BIGSERIAL PRIMARY KEY,
+                    event TEXT NOT NULL,
+                    created_at BIGINT NOT NULL
+                )"""
+            )
+        else:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("""CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    password_hash TEXT NOT NULL,
+                    is_premium INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL
+                )"""
+            )
+            try:
+                connection.execute("ALTER TABLE users ADD COLUMN is_premium INTEGER NOT NULL DEFAULT 0")
+                connection.commit()
+            except sqlite3.OperationalError:
+                pass
 
-        try:
-            connection.execute("ALTER TABLE users ADD COLUMN balance REAL NOT NULL DEFAULT 0.0")
-            connection.commit()
-        except sqlite3.OperationalError:
-            pass
+            try:
+                connection.execute("ALTER TABLE users ADD COLUMN balance REAL NOT NULL DEFAULT 0.0")
+                connection.commit()
+            except sqlite3.OperationalError:
+                pass
 
-        try:
-            connection.execute("ALTER TABLE users ADD COLUMN last_daily_claim INTEGER NOT NULL DEFAULT 0")
-            connection.commit()
-        except sqlite3.OperationalError:
-            pass
+            try:
+                connection.execute("ALTER TABLE users ADD COLUMN last_daily_claim INTEGER NOT NULL DEFAULT 0")
+                connection.commit()
+            except sqlite3.OperationalError:
+                pass
 
-        try:
-            connection.execute("ALTER TABLE users ADD COLUMN daily_streak INTEGER NOT NULL DEFAULT 0")
-            connection.commit()
-        except sqlite3.OperationalError:
-            pass
+            try:
+                connection.execute("ALTER TABLE users ADD COLUMN daily_streak INTEGER NOT NULL DEFAULT 0")
+                connection.commit()
+            except sqlite3.OperationalError:
+                pass
 
-        try:
-            connection.execute("ALTER TABLE users ADD COLUMN last_free_spin INTEGER NOT NULL DEFAULT 0")
-            connection.commit()
-        except sqlite3.OperationalError:
-            pass
+            try:
+                connection.execute("ALTER TABLE users ADD COLUMN last_free_spin INTEGER NOT NULL DEFAULT 0")
+                connection.commit()
+            except sqlite3.OperationalError:
+                pass
 
-        connection.execute(
-            """CREATE TABLE IF NOT EXISTS sessions (
-                token_hash TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL,
-                expires_at INTEGER NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(id)
-            )"""
-        )
-        connection.execute(
-            """CREATE TABLE IF NOT EXISTS projects (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                name TEXT NOT NULL,
-                filename TEXT NOT NULL,
-                stored_path TEXT NOT NULL,
-                size INTEGER NOT NULL,
-                created_at INTEGER NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(id)
-            )"""
-        )
-        connection.execute(
-            """CREATE TABLE IF NOT EXISTS updates (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                body TEXT NOT NULL,
-                tag TEXT NOT NULL DEFAULT 'GÜNCELLEME',
-                created_at INTEGER NOT NULL
-            )"""
-        )
-        connection.execute(
-            """CREATE TABLE IF NOT EXISTS payments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                code TEXT NOT NULL,
-                amount TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'BEKLEMEDE',
-                created_at INTEGER NOT NULL,
-                FOREIGN KEY(user_id) REFERENCES users(id)
-            )"""
-        )
-        connection.execute(
-            """CREATE TABLE IF NOT EXISTS logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event TEXT NOT NULL,
-                created_at INTEGER NOT NULL
-            )"""
-        )
-        if connection.execute("SELECT COUNT(*) FROM updates").fetchone()[0] == 0:
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS sessions (
+                    token_hash TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    expires_at INTEGER NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS projects (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    filename TEXT NOT NULL,
+                    stored_path TEXT NOT NULL,
+                    size INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS updates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    tag TEXT NOT NULL DEFAULT 'GÜNCELLEME',
+                    created_at INTEGER NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    code TEXT NOT NULL,
+                    amount TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'BEKLEMEDE',
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                )"""
+            )
+        if connection.execute("SELECT COUNT(*) AS n FROM updates").fetchone()["n"] == 0:
             connection.execute(
                 "INSERT INTO updates(title, body, tag, created_at) VALUES(?,?,?,?)",
                 (
@@ -219,13 +293,49 @@ def _migrate(connection: sqlite3.Connection) -> None:
                     int(time.time()),
                 ),
             )
+        connection.commit()
         _db_done = True
+
+
+class _Proxy:
+    """connection.execute(...) erişimini SQLite ve Postgres için birleştirir."""
+
+    def __init__(self, raw) -> None:
+        self._raw = raw
+
+    def execute(self, sql: str, params: tuple = ()):
+        if IS_POSTGRES:
+            cursor = self._raw.cursor(cursor_factory=psycopg2.extras.DictCursor)
+            cursor.execute(sql.replace("?", "%s"), params)
+            return cursor
+        return self._raw.execute(sql, params)
+
+    def insert_id(self, sql: str, params: tuple = ()) -> int:
+        if IS_POSTGRES:
+            cursor = self._raw.cursor()
+            cursor.execute(sql.replace("?", "%s") + " RETURNING id", params)
+            row = cursor.fetchone()
+            return int(row[0]) if row else 0
+        return int(self._raw.execute(sql, params).lastrowid)
+
+    def commit(self) -> None:
+        self._raw.commit()
+
+    def rollback(self) -> None:
+        self._raw.rollback()
+
+    def close(self) -> None:
+        self._raw.close()
 
 
 @contextmanager
 def db():
-    connection = sqlite3.connect(DB_PATH, timeout=30.0)
-    connection.row_factory = sqlite3.Row
+    if IS_POSTGRES:
+        raw = psycopg2.connect(DATABASE_URL, sslmode="require")
+    else:
+        raw = sqlite3.connect(DB_PATH, timeout=30.0)
+        raw.row_factory = sqlite3.Row
+    connection = _Proxy(raw)
     _migrate(connection)
     try:
         yield connection
@@ -1247,9 +1357,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 with db() as connection:
-                    cursor = connection.execute("INSERT INTO users(username,password_hash,created_at) VALUES(?,?,?)", (name, password_hash(password), int(time.time())))
-                    user_id = cursor.lastrowid
-            except sqlite3.IntegrityError:
+                    user_id = connection.insert_id("INSERT INTO users(username,password_hash,created_at) VALUES(?,?,?)", (name, password_hash(password), int(time.time())))
+            except DB_UNIQUE_ERROR:
                 time.sleep(1.0)
                 q_text, c_val = generate_captcha()
                 fields_html = f'<label>Kullanıcı adı<input name="username" required maxlength="24"></label><label>Şifre<input name="password" type="password" required minlength="8"></label><label>Şifre tekrar<input name="password2" type="password" required minlength="8"></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
@@ -1270,7 +1379,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_html(form_page("Giriş yap", "/login", "Giriş yap", fields_html, username, "Robot doğrulaması hatalı.", message_type="error", is_premium=is_premium, csrf_token=csrf_tok), 400, cookies=[("captcha", c_val)])
                 return
             with db() as connection:
-                row = connection.execute("SELECT id,username,password_hash FROM users WHERE username=? COLLATE NOCASE", (name,)).fetchone()
+                if IS_POSTGRES:
+                    row = connection.execute("SELECT id,username,password_hash FROM users WHERE LOWER(username)=LOWER(?)", (name,)).fetchone()
+                else:
+                    row = connection.execute("SELECT id,username,password_hash FROM users WHERE username=? COLLATE NOCASE", (name,)).fetchone()
             if not row or not password_matches(password, row["password_hash"]):
                 time.sleep(1.0)
                 q_text, c_val = generate_captcha()
@@ -1315,8 +1427,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             PROJECTS_PATH.mkdir(parents=True, exist_ok=True)
             with db() as connection:
-                cursor = connection.execute("INSERT INTO projects(user_id,name,filename,stored_path,size,created_at) VALUES(?,?,?,?,?,?)", (current[1], name, filename, "", len(data), int(time.time())))
-                project_id = cursor.lastrowid
+                project_id = connection.insert_id("INSERT INTO projects(user_id,name,filename,stored_path,size,created_at) VALUES(?,?,?,?,?,?)", (current[1], name, filename, "", len(data), int(time.time())))
                 stored_name = f"{project_id}_{secrets.token_hex(8)}_{filename}"
                 stored_path = str(Path("projects") / stored_name)
                 connection.execute("UPDATE projects SET stored_path=? WHERE id=?", (stored_path, project_id))
