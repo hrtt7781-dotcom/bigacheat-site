@@ -4,6 +4,7 @@ import datetime
 import hashlib
 import hmac
 import html
+import io
 import os
 import random
 import re
@@ -11,6 +12,7 @@ import secrets
 import sqlite3
 import threading
 import time
+import zipfile
 from contextlib import contextmanager
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -210,6 +212,16 @@ def _migrate(connection) -> None:
                     created_at BIGINT NOT NULL
                 )"""
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS downloads (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    filename TEXT NOT NULL,
+                    serial TEXT NOT NULL,
+                    ip TEXT NOT NULL DEFAULT '',
+                    created_at BIGINT NOT NULL
+                )"""
+            )
         else:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("""CREATE TABLE IF NOT EXISTS users (
@@ -307,6 +319,17 @@ def _migrate(connection) -> None:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     event TEXT NOT NULL,
                     created_at INTEGER NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS downloads (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    filename TEXT NOT NULL,
+                    serial TEXT NOT NULL,
+                    ip TEXT NOT NULL DEFAULT '',
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
                 )"""
             )
         if connection.execute("SELECT COUNT(*) AS n FROM updates").fetchone()["n"] == 0:
@@ -460,6 +483,37 @@ def human_size(size: int) -> str:
     if size >= 1024 * 1024:
         return f"{size / (1024 * 1024):.2f} MB"
     return f"{max(1, size // 1024)} KB"
+
+
+def generate_license_serial() -> str:
+    return "BC-" + "-".join(secrets.token_hex(3).upper() for _ in range(3))
+
+
+def make_watermarked_zip(username: str, serial: str, files: list[Path]) -> bytes:
+    """Kişiye özel LICENSE.txt + seri numarasını ZIP yorumuna gömen arşiv üretir."""
+    now = time.strftime("%Y-%m-%d %H:%M", time.localtime())
+    license_txt = f"""BIGA CHEAT - LİSANS SERTİFİKASI
+==================================
+Bu arşiv kişiye özel üretilmiştir ve yalnızca lisans sahibine aittir.
+
+Kullanıcı        : {username}
+Lisans No        : {serial}
+Üretim Tarihi    : {now}
+
+Bu dosyayı paylaşmak yasaktır. Bu arşiv veya içindeki lisans numarası
+bir başkasında görülürse, lisans sahibinin premium erişimi kalıcı olarak
+iptal edilir ve hesabı dondurulur.
+
+© Biga Cheat
+"""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("LICENSE.txt", license_txt.encode("utf-8"))
+        for f in files:
+            if f.is_file() and f.name.lower() != "readme.md":
+                zf.write(f, arcname=f.name)
+        zf.comment = f"BigaCheat|{serial}|{username}".encode("utf-8")
+    return buffer.getvalue()
 
 
 def format_date(timestamp: int) -> str:
@@ -868,42 +922,49 @@ class Handler(BaseHTTPRequestHandler):
                 expiry_box = ""
             file_cards = ""
             for f in files:
-                file_cards += f'<article class="project-card"><div><span class="panel-icon">PREMIUM</span><h2>{esc(f.name)}</h2><p class="muted">{human_size(f.stat().st_size)}</p></div><a class="button primary" href="/paid-cheats/download/{quote(f.name)}">İndir</a></article>'
+                file_cards += f'<article class="project-card"><div><span class="panel-icon">PREMIUM</span><h2>{esc(f.name)}</h2><p class="muted">{human_size(f.stat().st_size)}</p></div></article>'
             body = f"""<section class="page-head"><div><div class="eyebrow">PREMIUM VAULT</div><h1>Ücretli Hileler</h1><p class="lead">Premium üyelerin indirebileceği özel sürümler.</p></div></section>
 {expiry_box}
 <section class="project-list">{file_cards or '<div class="empty-state"><h2>İçerik hazır değil</h2><p class="muted">Yönetici henüz premium içerik yüklemedi.</p></div>'}</section>
+<section class="auth-card" style="margin-top: 30px; max-width: none;">
+    <div class="eyebrow">İNDİRME</div>
+    <h2>Premium Paket</h2>
+    <p class="muted" style="margin: 10px 0 18px;">İndireceğin arşiv <strong>kişiye özel</strong> üretilir: içinde {esc(username or "?")} adına kayıtlı <strong>LICENSE.txt</strong> ve benzersiz lisans numarası bulunur. Bu numara her indirmede kaydedilir; dosya paylaşılırsa lisans sahibi tespit edilir ve premium erişimi iptal edilir.</p>
+    <a class="button primary wide" href="/paid-cheats/download">Tümünü indir (filigranlı ZIP)</a>
+</section>
 <section class="auth-card" style="margin-top: 30px; max-width: none;"><div class="eyebrow">KURULUM</div><h2>Nasıl Kullanılır?</h2><pre style="white-space: pre-wrap; background: #ffffff04; border: 1px solid var(--line); border-radius: 10px; padding: 16px; font-size: 13px; color: #cfd8e3;">{esc(readme_txt) if readme_txt else 'Kurulum notu yakında eklenecek.'}</pre></section>"""
             self.send_html(page("Ücretli Hileler", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
-        elif path.startswith("/paid-cheats/download/"):
+        elif path == "/paid-cheats/download":
             if not user:
                 self.redirect("/login")
                 return
             if not is_premium:
                 self.redirect("/payment")
                 return
-            fname = unquote(path.rsplit("/", 1)[1])
-            safe = Path(fname).name
-            if safe != fname or safe.lower() == "readme.md":
-                self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+            files = []
+            if PAID_CHEATS_DIR.is_dir():
+                for f in sorted(PAID_CHEATS_DIR.iterdir(), key=lambda p: p.name.lower()):
+                    if f.is_file() and f.name.lower() != "readme.md":
+                        files.append(f)
+            if not files:
+                self.send_html(page("Dosya yok", '<section class="auth-card"><h1>İçerik hazır değil</h1><p class="muted">Yönetici henüz premium içerik yüklemedi.</p></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
                 return
-            file_path = PAID_CHEATS_DIR / safe
-            if not file_path.is_file() or PAID_CHEATS_DIR.resolve() not in file_path.resolve().parents:
-                self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>Dosya bulunamadı</h1></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
-                return
-            size = file_path.stat().st_size
+            serial = generate_license_serial()
+            zip_data = make_watermarked_zip(username or "?", serial, files)
+            with db() as connection:
+                connection.execute("INSERT INTO downloads(user_id, filename, serial, ip, created_at) VALUES(?,?,?,?,?)", (user[1], "paid-cheats.zip", serial, self.client_ip(), int(time.time())))
+            log_event(f"[İNDİRME] '{username}' ücretli içeriği indirdi (lisans {serial}).")
             self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Length", str(size))
-            self.send_header("Content-Disposition", f'attachment; filename="{safe}"')
+            self.send_header("Content-Type", "application/zip")
+            self.send_header("Content-Length", str(len(zip_data)))
+            self.send_header("Content-Disposition", 'attachment; filename="BigaCheat-Premium.zip"')
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "same-origin")
             if COOKIE_SECURE:
                 self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
             self.end_headers()
-            with file_path.open("rb") as file:
-                while chunk := file.read(1024 * 1024):
-                    self.wfile.write(chunk)
+            self.wfile.write(zip_data)
         elif path == "/download":
             if not user:
                 self.redirect("/login")
@@ -1253,6 +1314,7 @@ class Handler(BaseHTTPRequestHandler):
                 users = connection.execute("SELECT id, username, created_at, is_premium, premium_until, balance FROM users ORDER BY created_at DESC").fetchall()
                 updates = connection.execute("SELECT id, title, body, tag, created_at FROM updates ORDER BY created_at DESC").fetchall()
                 payments = connection.execute("SELECT payments.id, users.username, payments.platform, payments.code, payments.amount, payments.status, payments.created_at FROM payments JOIN users ON users.id=payments.user_id ORDER BY payments.created_at DESC").fetchall()
+                dl_logs = connection.execute("SELECT downloads.id, users.username, downloads.filename, downloads.serial, downloads.ip, downloads.created_at FROM downloads JOIN users ON users.id=downloads.user_id ORDER BY downloads.created_at DESC LIMIT 30").fetchall()
                 logs = connection.execute("SELECT event, created_at FROM logs ORDER BY created_at DESC LIMIT 25").fetchall()
                 logs_count = connection.execute("SELECT COUNT(*) FROM logs").fetchone()[0]
 
@@ -1326,6 +1388,11 @@ class Handler(BaseHTTPRequestHandler):
                     pending_rows += f"<tr><td>{plat_badge}</td><td>{esc(row['username'])}</td><td><code>{esc(row['code'])}</code></td><td>{esc(row['amount'])}</td><td>{format_date(row['created_at'])}</td><td>{status_badge}</td><td>{actions}</td></tr>"
 
             log_rows = "".join(f"<tr><td>{format_date(row['created_at'])} {time.strftime('%H:%M:%S', time.localtime(row['created_at']))}</td><td>{esc(row['event'])}</td></tr>" for row in logs)
+
+            dl_rows = "".join(
+                f"<tr><td>{esc(row['username'])}</td><td><code>{esc(row['serial'])}</code></td><td>{esc(row['ip'])}</td><td>{format_date(row['created_at'])} {time.strftime('%H:%M:%S', time.localtime(row['created_at']))}</td></tr>"
+                for row in dl_logs
+            )
 
             file_status = f"{DOWNLOAD_PATH.stat().st_size / 1024 / 1024:.2f} MB" if DOWNLOAD_PATH.is_file() else "Dosya yok"
             paid_files = [f.name for f in PAID_CHEATS_DIR.iterdir() if f.is_file()] if PAID_CHEATS_DIR.is_dir() else []
@@ -1460,6 +1527,26 @@ class Handler(BaseHTTPRequestHandler):
             </thead>
             <tbody>
                 {update_rows or '<tr><td colspan="3" class="muted">Henüz duyuru yok.</td></tr>'}
+            </tbody>
+        </table>
+    </section>
+</section>
+
+<section class="admin-grid" style="display: grid; grid-template-columns: 1fr; gap: 30px; margin-top: 30px;">
+    <section class="table-card">
+        <h2>Premium İndirme Takibi (Filigran)</h2>
+        <p class="muted" style="margin-bottom: 12px;">Ücretli içerik indirmelerinin lisans numarası ve IP kayıtları. Bir dosya sızdıysa lisans numarasından kimin indirdiği tespit edilir.</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Kullanıcı</th>
+                    <th>Lisans No</th>
+                    <th>IP</th>
+                    <th>Zaman</th>
+                </tr>
+            </thead>
+            <tbody>
+                {dl_rows or '<tr><td colspan="4" class="muted">Henüz ücretli indirme yapılmamış.</td></tr>'}
             </tbody>
         </table>
     </section>
