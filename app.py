@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import hashlib
 import hmac
 import html
@@ -8,6 +9,7 @@ import random
 import re
 import secrets
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from http import HTTPStatus
@@ -21,15 +23,42 @@ DATA_DIR = Path("/data") if Path("/data").is_dir() else ROOT
 DB_PATH = DATA_DIR / "data.sqlite3"
 DOWNLOAD_PATH = ROOT / "downloads" / "Biga Cheat-Cs2-Modified.exe"
 PROJECTS_PATH = DATA_DIR / "projects"
-APP_SECRET = b"bigacheat-super-secure-fixed-session-secret-key-123"
-COOKIE_SECURE = False
+APP_SECRET = os.environ.get("APP_SECRET", "").encode()
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "0") == "1"
 SESSION_TTL = 60 * 60 * 24 * 14
 MAX_PROJECT_SIZE = 25 * 1024 * 1024
-ADMIN_USERNAME = "admin"
-ADMIN_PASSWORD = "yunustat14"
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 ADMIN_TTL = 60 * 60 * 12
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,24}$")
 FREE_SPIN_COOLDOWN = 60 * 60 * 4  # 4 saat
+
+# In-memory rate limiter: { (ip, action): [timestamps] }
+_RATE_LOCK = threading.Lock()
+_RATE_BUCKETS: dict[tuple[str, str], list[int]] = {}
+# (limit, window_seconds) per action
+RATE_LIMITS: dict[str, tuple[int, int]] = {
+    "register": (5, 300),
+    "login": (5, 300),
+    "payment/submit": (5, 300),
+    "admin/login": (5, 300),
+    "wheel/spin": (10, 300),
+}
+
+
+def rate_allowed(ip: str, action: str) -> bool:
+    limit, window = RATE_LIMITS.get(action, (10, 300))
+    now = int(time.time())
+    key = (ip, action)
+    with _RATE_LOCK:
+        stamps = [t for t in _RATE_BUCKETS.get(key, []) if now - t < window]
+        if len(stamps) >= limit:
+            _RATE_BUCKETS[key] = stamps
+            return False
+        stamps.append(now)
+        _RATE_BUCKETS[key] = stamps
+        return True
+
 
 WHEELS = {
     "ucretsiz": {
@@ -67,13 +96,19 @@ WHEELS = {
 }
 
 
-@contextmanager
-def db():
-    connection = sqlite3.connect(DB_PATH, timeout=30.0)
-    connection.row_factory = sqlite3.Row
-    try:
-        connection.execute(
-            """CREATE TABLE IF NOT EXISTS users (
+_db_migrated = threading.Lock()
+_db_done = False
+
+
+def _migrate(connection: sqlite3.Connection) -> None:
+    global _db_done
+    if _db_done:
+        return
+    with _db_migrated:
+        if _db_done:
+            return
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("""CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 password_hash TEXT NOT NULL,
@@ -168,7 +203,15 @@ def db():
                     int(time.time()),
                 ),
             )
-        connection.commit()
+        _db_done = True
+
+
+@contextmanager
+def db():
+    connection = sqlite3.connect(DB_PATH, timeout=30.0)
+    connection.row_factory = sqlite3.Row
+    _migrate(connection)
+    try:
         yield connection
         connection.commit()
     except Exception:
@@ -295,7 +338,20 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
     notice = f'<div class="{msg_class}">{esc(message)}</div>' if message else ""
     return f"""<!doctype html>
 <html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{esc(title)} · Biga Cheat</title><link rel="stylesheet" href="/static/style.css"></head>
+<title>{esc(title)} · Biga Cheat</title>
+<meta name="description" content="Biga Cheat - CS2 topluluğu için sürüm duyuruları, projeler ve indirme alanı.">
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="https://biga-cheat-site.onrender.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Biga Cheat">
+<meta property="og:title" content="{esc(title)} · Biga Cheat">
+<meta property="og:description" content="Biga Cheat - CS2 topluluğu için sürüm duyuruları, projeler ve indirme alanı.">
+<meta property="og:url" content="https://biga-cheat-site.onrender.com/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{esc(title)} · Biga Cheat">
+<meta name="twitter:description" content="Biga Cheat - CS2 topluluğu için sürüm duyuruları, projeler ve indirme alanı.">
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/static/style.css"></head>
 <body><div class="orb orb-a"></div><div class="orb orb-b"></div>
 <header class="topbar"><a class="brand" href="/"><span class="brand-mark">BC</span><span>Biga Cheat</span></a><nav>{account}</nav></header>
 <main>{notice}{body}</main><footer>Biga Cheat · güvenli indirme alanı</footer>
@@ -372,7 +428,6 @@ def csrf_for(handler: BaseHTTPRequestHandler) -> str:
 
 
 def generate_captcha() -> tuple[str, str]:
-    import random
     num1 = random.randint(2, 9)
     num2 = random.randint(2, 9)
     ans = num1 + num2
@@ -462,11 +517,29 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+        )
+        if COOKIE_SECURE:
+            self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        self.send_header("Cache-Control", "no-store")
         if cookies:
             for name, value in cookies:
                 self.send_header("Set-Cookie", f"{name}={value}; Path=/; HttpOnly; SameSite=Lax")
         self.end_headers()
         self.wfile.write(data)
+
+    def rate_limit_response(self) -> None:
+        self.send_html(
+            page(
+                "Çok fazla istek",
+                '<section class="auth-card"><h1>Yavaşla</h1><p class="muted">Çok fazla deneme yaptın. Lütfen birkaç dakika bekle.</p></section>',
+                "",
+            ),
+            HTTPStatus.TOO_MANY_REQUESTS,
+        )
 
 
 
@@ -495,8 +568,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def parse_form(self) -> dict[str, str]:
-        length = int(self.headers.get("Content-Length", "0"))
-        raw = self.rfile.read(min(length, 16_384)).decode("utf-8", "replace")
+        try:
+            length = max(0, min(int(self.headers.get("Content-Length", "0")), 16_384))
+        except (ValueError, TypeError):
+            length = 0
+        raw = self.rfile.read(length).decode("utf-8", "replace")
         return {key: values[0] for key, values in parse_qs(raw).items() if values}
 
     def do_GET(self) -> None:
@@ -510,7 +586,44 @@ class Handler(BaseHTTPRequestHandler):
         is_premium = self.is_user_premium(user[1]) if user else False
         csrf_tok = csrf_for(self)
 
-        if path == "/":
+        if path == "/health":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", "2")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(b"ok")
+            return
+        elif path == "/robots.txt":
+            robots = "User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /login\nDisallow: /register\n"
+            data = robots.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        elif path == "/sitemap.xml":
+            base = "https://biga-cheat-site.onrender.com"
+            urls = ["", "/updates", "/projects", "/wheel", "/daily", "/payment", "/login", "/register"]
+            lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+            for u in urls:
+                lines.append(f"<url><loc>{base}{u}</loc><changefreq>daily</changefreq></url>")
+            lines.append("</urlset>")
+            data = "\n".join(lines).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+        elif path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
+            return
+        elif path == "/":
             status = "Hesabınla giriş yaparak sürümü indirebilirsin." if not user else "Hesabın hazır. Güncel sürümü aşağıdan indirebilirsin."
             body = f"""<section class="hero"><div class="eyebrow">CS2 İÇİN ÖZEL SÜRÜM ALANI</div><h1>CS2 için Biga Cheat<span>.</span></h1><p class="lead">Temiz, hızlı ve tek yerden yönetilen sürüm ve proje alanı.</p>
 <div class="hero-actions">{'<a class="button primary" href="/download">Sürümü indir</a>' if user else '<a class="button primary" href="/register">Ücretsiz hesap oluştur</a><a class="button ghost" href="/login">Giriş yap</a>'}</div></section>
@@ -546,6 +659,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "same-origin")
+            if COOKIE_SECURE:
+                self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
             self.end_headers()
             with DOWNLOAD_PATH.open("rb") as file:
                 while chunk := file.read(1024 * 1024):
@@ -674,7 +789,6 @@ class Handler(BaseHTTPRequestHandler):
             daily_streak = row["daily_streak"] if row else 0
             last_daily_claim = row["last_daily_claim"] if row else 0
             
-            import datetime
             def is_today(t: int) -> bool:
                 return datetime.date.fromtimestamp(t) == datetime.date.today()
             def is_yesterday(t: int) -> bool:
@@ -1078,6 +1192,10 @@ class Handler(BaseHTTPRequestHandler):
         username = current[0] if current else None
         is_premium = self.is_user_premium(current[1]) if current else False
         csrf_tok = csrf_for(self)
+        ip = self.client_address[0] if self.client_address else "unknown"
+        if path in ("/register", "/login", "/admin/login", "/payment/submit", "/wheel/spin") and not rate_allowed(ip, path.strip("/")):
+            self.rate_limit_response()
+            return
         if path == "/register":
             name = fields.get("username", "").strip()
             password = fields.get("password", "")
@@ -1213,6 +1331,7 @@ class Handler(BaseHTTPRequestHandler):
             if not payment_id:
                 self.redirect_admin("/admin?msg=Eksik+bilgi&msg_type=error")
                 return
+            log_msg = None
             with db() as connection:
                 payment = connection.execute("SELECT user_id, status, amount FROM payments WHERE id=?", (payment_id,)).fetchone()
                 if payment and payment["status"] == "BEKLEMEDE":
@@ -1228,7 +1347,9 @@ class Handler(BaseHTTPRequestHandler):
                     connection.execute("UPDATE users SET is_premium=1, balance=balance+? WHERE id=?", (amount_val, payment["user_id"]))
                     user_row = connection.execute("SELECT username FROM users WHERE id=?", (payment["user_id"],)).fetchone()
                     if user_row:
-                        log_event(f"[PREMIUM] '{user_row['username']}' kullanıcısının ödeme talebi onaylandı, premium yapıldı ve {amount_val:.2f} TL bakiye eklendi.")
+                        log_msg = f"[PREMIUM] '{user_row['username']}' kullanıcısının ödeme talebi onaylandı, premium yapıldı ve {amount_val:.2f} TL bakiye eklendi."
+            if log_msg:
+                log_event(log_msg)
             self.redirect_admin("/admin?msg=Odeme+onaylandi&msg_type=success")
         elif path == "/admin/payments/reject":
             if not is_admin_cookie(self.admin_cookie()):
@@ -1241,13 +1362,16 @@ class Handler(BaseHTTPRequestHandler):
             if not payment_id:
                 self.redirect_admin("/admin?msg=Eksik+bilgi&msg_type=error")
                 return
+            log_msg = None
             with db() as connection:
                 payment = connection.execute("SELECT user_id, status FROM payments WHERE id=?", (payment_id,)).fetchone()
                 if payment and payment["status"] == "BEKLEMEDE":
                     connection.execute("UPDATE payments SET status='REDDEDİLDİ' WHERE id=?", (payment_id,))
                     user_row = connection.execute("SELECT username FROM users WHERE id=?", (payment["user_id"],)).fetchone()
                     if user_row:
-                        log_event(f"[RED] '{user_row['username']}' kullanıcısının ödeme talebi reddedildi.")
+                        log_msg = f"[RED] '{user_row['username']}' kullanıcısının ödeme talebi reddedildi."
+            if log_msg:
+                log_event(log_msg)
             self.redirect_admin("/admin?msg=Odeme+reddedildi&msg_type=success")
         elif path == "/admin/updates/create":
             if not is_admin_cookie(self.admin_cookie()):
@@ -1277,13 +1401,16 @@ class Handler(BaseHTTPRequestHandler):
             if not user_id:
                 self.redirect_admin("/admin?msg=Eksik+bilgi&msg_type=error")
                 return
+            log_msg = None
             with db() as connection:
                 user_row = connection.execute("SELECT username, is_premium FROM users WHERE id=?", (user_id,)).fetchone()
                 if user_row:
                     new_status = 0 if user_row["is_premium"] else 1
                     connection.execute("UPDATE users SET is_premium=? WHERE id=?", (new_status, user_id))
                     status_str = "PREMIUM yapıldı" if new_status else "PREMIUM iptal edildi"
-                    log_event(f"[KULLANICI] '{user_row['username']}' kullanıcısının premium durumu değiştirildi: {status_str}")
+                    log_msg = f"[KULLANICI] '{user_row['username']}' kullanıcısının premium durumu değiştirildi: {status_str}"
+            if log_msg:
+                log_event(log_msg)
             self.redirect_admin("/admin?msg=Kullanici+premium+durumu+guncellendi&msg_type=success")
         elif path == "/admin/users/add_balance":
             if not is_admin_cookie(self.admin_cookie()):
@@ -1306,7 +1433,9 @@ class Handler(BaseHTTPRequestHandler):
                 user_row = connection.execute("SELECT username FROM users WHERE id=?", (user_id,)).fetchone()
                 if user_row:
                     connection.execute("UPDATE users SET balance=balance+? WHERE id=?", (amount_val, user_id))
-                    log_event(f"[BAKİYE] Admin '{user_row['username']}' kullanıcısına {amount_val:.2f} TL bakiye ekledi.")
+                    log_msg = f"[BAKİYE] Admin '{user_row['username']}' kullanıcısına {amount_val:.2f} TL bakiye ekledi."
+            if log_msg:
+                log_event(log_msg)
             self.redirect_admin("/admin?msg=Bakiye+guncellendi&msg_type=success")
         elif path == "/daily/claim":
             if not current:
@@ -1316,7 +1445,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
                 return
                 
-            import datetime
             def is_today(t: int) -> bool:
                 return datetime.date.fromtimestamp(t) == datetime.date.today()
             def is_yesterday(t: int) -> bool:
@@ -1345,10 +1473,10 @@ class Handler(BaseHTTPRequestHandler):
                 
                 current_time = int(time.time())
                 connection.execute("UPDATE users SET balance=balance+?, daily_streak=?, last_daily_claim=? WHERE id=?", (reward_amt, new_streak, current_time, current[1]))
-                connection.commit()
                 
-                log_event(f"[GÜNLÜK] '{username}' kullanıcısı Gün {active_day} günlük ödülünü aldı: {reward_amt:.2f} TL. (Yeni Seri: {new_streak})")
-                self.redirect(f"/daily?msg=Tebrikler!+{reward_amt:.0f}+TL+bakiye+hesabiniza+eklendi.&msg_type=success")
+                log_msg = f"[GÜNLÜK] '{username}' kullanıcısı Gün {active_day} günlük ödülünü aldı: {reward_amt:.2f} TL. (Yeni Seri: {new_streak})"
+            log_event(log_msg)
+            self.redirect(f"/daily?msg=Tebrikler!+{reward_amt:.0f}+TL+bakiye+hesabiniza+eklendi.&msg_type=success")
         elif path == "/wheel/spin":
             if not current:
                 self.redirect("/login")
@@ -1361,7 +1489,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.redirect("/wheel?msg=Gecersiz+cark&msg_type=error")
                 return
             w = WHEELS[wheel_key]
-            import random
             with db() as connection:
                 urow = connection.execute("SELECT balance, last_free_spin FROM users WHERE id=?", (current[1],)).fetchone()
                 if not urow:
@@ -1385,18 +1512,30 @@ class Handler(BaseHTTPRequestHandler):
                 reward = w["rewards"][seg_idx]
 
                 if wheel_key == "ucretsiz":
-                    connection.execute("UPDATE users SET balance=balance+?, last_free_spin=? WHERE id=?", (reward, now, current[1]))
+                    # Atomic guard prevents a double-claim race on the cooldown.
+                    cur = connection.execute(
+                        "UPDATE users SET balance=balance+?, last_free_spin=? WHERE id=? AND ?-last_free_spin>=?",
+                        (reward, now, current[1], now, FREE_SPIN_COOLDOWN),
+                    )
+                    if cur.rowcount == 0:
+                        connection.rollback()
+                        self.redirect("/wheel?msg=Ucretsiz+cark+icin+beklemelisiniz&msg_type=error")
+                        return
                 else:
                     net = reward - w["cost"]
                     connection.execute("UPDATE users SET balance=balance+? WHERE id=?", (net, current[1]))
-                connection.commit()
-                log_event(f"[ÇARK] '{username}' {w['name']} çevirdi → {reward} TL kazandı (Segment {seg_idx+1})")
+                log_msg = f"[ÇARK] '{username}' {w['name']} çevirdi → {reward} TL kazandı (Segment {seg_idx+1})"
+            log_event(log_msg)
             self.redirect(f"/wheel?won={reward}&wh={wheel_key}&seg={seg_idx}")
         else:
             self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 404)
 
 
 def main() -> None:
+    if not APP_SECRET:
+        raise RuntimeError("APP_SECRET env var is required")
+    if not ADMIN_PASSWORD:
+        raise RuntimeError("ADMIN_PASSWORD env var is required")
     with db():
         pass
     host = os.environ.get("HOST", "0.0.0.0")
