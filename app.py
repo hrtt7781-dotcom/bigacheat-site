@@ -805,9 +805,6 @@ class Handler(BaseHTTPRequestHandler):
             if not user:
                 self.redirect("/login")
                 return
-            if not is_premium:
-                self.redirect("/payment")
-                return
             if not DOWNLOAD_PATH.is_file():
                 self.send_html(page("Dosya yok", '<section class="auth-card"><h1>Dosya hazır değil</h1><p class="muted">Yönetici henüz bir sürüm yüklemedi.</p></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
                 return
