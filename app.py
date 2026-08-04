@@ -628,7 +628,7 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
 <link rel="icon" type="image/png" href="/static/favicon.png">
 <link rel="apple-touch-icon" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/style.css"></head>
-<body><div class="orb orb-a"></div><div class="orb orb-b"></div><div class="orb orb-c"></div>{body_data_attr}
+<body{body_data_attr}><div class="orb orb-a"></div><div class="orb orb-b"></div><div class="orb orb-c"></div>
 <header class="topbar"><a class="brand" href="/"><img class="brand-logo" src="/static/favicon.png" alt="Biga Cheat logo" width="34" height="34"><span>Biga Cheat</span></a><nav>{account}</nav></header>
 <main>{notice}{body}</main><footer><b>Biga Cheat</b> · güvenli indirme alanı · Tüm hakları saklıdır © 2026</footer>
 <script>
