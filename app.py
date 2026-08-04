@@ -89,6 +89,164 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "wheel/spin": (10, 300),
     "loader/login": (10, 300),
     "chat/send": (1, 10),
+    "cases/open": (3, 60),
+}
+
+# CS2 benzeri kasa sistemi
+TIER_INFO = {
+    "consumer": {"name": "Tüketici Sınıfı", "color": "#b0c3d9", "star": "★"},
+    "industrial": {"name": "Endüstriyel Sınıf", "color": "#5e98d9", "star": "★★"},
+    "restricted": {"name": "Kısıtlı Sınıf", "color": "#8847ff", "star": "★★★"},
+    "classified": {"name": "Gizli Sınıf", "color": "#d32ce6", "star": "★★★★"},
+    "covert": {"name": "Gizlilik Sınıfı", "color": "#eb4b4b", "star": "★★★★★"},
+    "extraordinary": {"name": "OLAĞANÜSTÜ", "color": "#ffd700", "star": "★★★★★★"},
+}
+TIER_ORDER = ["consumer", "industrial", "restricted", "classified", "covert", "extraordinary"]
+
+# weight değerleri: consumer 60, industrial 25, restricted 10, classified 4, covert 1
+CASES = {
+    "kumbara": {
+        "name": "Kumbara Kasa",
+        "price": 5.0,
+        "icon": "🐷",
+        "color": "#b0c3d9",
+        "tag": "BAŞLANGIÇ",
+        "items": [
+            {"name": "0,50 TL Bakiye", "tier": "consumer", "type": "balance", "value": 0.5, "weight": 60},
+            {"name": "1,50 TL Bakiye", "tier": "industrial", "type": "balance", "value": 1.5, "weight": 25},
+            {"name": "3 TL Bakiye", "tier": "restricted", "type": "balance", "value": 3.0, "weight": 10},
+            {"name": "8 TL Bakiye", "tier": "classified", "type": "balance", "value": 8.0, "weight": 4},
+            {"name": "1 Gün Premium", "tier": "covert", "type": "premium", "value": 1, "weight": 1},
+        ],
+    },
+    "mavzer": {
+        "name": "Mavzer Kasa",
+        "price": 10.0,
+        "icon": "🔫",
+        "color": "#5e98d9",
+        "tag": "GÜNCEL",
+        "items": [
+            {"name": "1 TL Bakiye", "tier": "consumer", "type": "balance", "value": 1.0, "weight": 60},
+            {"name": "3 TL Bakiye", "tier": "industrial", "type": "balance", "value": 3.0, "weight": 25},
+            {"name": "7 TL Bakiye", "tier": "restricted", "type": "balance", "value": 7.0, "weight": 10},
+            {"name": "15 TL Bakiye", "tier": "classified", "type": "balance", "value": 15.0, "weight": 4},
+            {"name": "2 Gün Premium", "tier": "covert", "type": "premium", "value": 2, "weight": 1},
+        ],
+    },
+    "cepane": {
+        "name": "Cepane Kasa",
+        "price": 20.0,
+        "icon": "📦",
+        "color": "#8847ff",
+        "tag": "POPÜLER",
+        "items": [
+            {"name": "2 TL Bakiye", "tier": "consumer", "type": "balance", "value": 2.0, "weight": 55},
+            {"name": "6 TL Bakiye", "tier": "industrial", "type": "balance", "value": 6.0, "weight": 25},
+            {"name": "14 TL Bakiye", "tier": "restricted", "type": "balance", "value": 14.0, "weight": 12},
+            {"name": "28 TL Bakiye", "tier": "classified", "type": "balance", "value": 28.0, "weight": 6},
+            {"name": "3 Gün Premium", "tier": "covert", "type": "premium", "value": 3, "weight": 2},
+        ],
+    },
+    "savascı": {
+        "name": "Savaşçı Kasa",
+        "price": 35.0,
+        "icon": "🪖",
+        "color": "#8847ff",
+        "tag": "POPÜLER",
+        "items": [
+            {"name": "4 TL Bakiye", "tier": "consumer", "type": "balance", "value": 4.0, "weight": 55},
+            {"name": "10 TL Bakiye", "tier": "industrial", "type": "balance", "value": 10.0, "weight": 25},
+            {"name": "22 TL Bakiye", "tier": "restricted", "type": "balance", "value": 22.0, "weight": 12},
+            {"name": "45 TL Bakiye", "tier": "classified", "type": "balance", "value": 45.0, "weight": 6},
+            {"name": "5 Gün Premium", "tier": "covert", "type": "premium", "value": 5, "weight": 2},
+        ],
+    },
+    "yildiz": {
+        "name": "Yıldız Kasa",
+        "price": 50.0,
+        "icon": "⭐",
+        "color": "#d32ce6",
+        "tag": "GÜNCEL",
+        "items": [
+            {"name": "5 TL Bakiye", "tier": "consumer", "type": "balance", "value": 5.0, "weight": 55},
+            {"name": "15 TL Bakiye", "tier": "industrial", "type": "balance", "value": 15.0, "weight": 25},
+            {"name": "35 TL Bakiye", "tier": "restricted", "type": "balance", "value": 35.0, "weight": 12},
+            {"name": "70 TL Bakiye", "tier": "classified", "type": "balance", "value": 70.0, "weight": 6},
+            {"name": "7 Gün Premium", "tier": "covert", "type": "premium", "value": 7, "weight": 2},
+        ],
+    },
+    "spektrum": {
+        "name": "Spektrum Kasa",
+        "price": 75.0,
+        "icon": "🌈",
+        "color": "#d32ce6",
+        "tag": "GÜNCEL",
+        "items": [
+            {"name": "8 TL Bakiye", "tier": "consumer", "type": "balance", "value": 8.0, "weight": 50},
+            {"name": "22 TL Bakiye", "tier": "industrial", "type": "balance", "value": 22.0, "weight": 25},
+            {"name": "50 TL Bakiye", "tier": "restricted", "type": "balance", "value": 50.0, "weight": 14},
+            {"name": "100 TL Bakiye", "tier": "classified", "type": "balance", "value": 100.0, "weight": 8},
+            {"name": "10 Gün Premium", "tier": "covert", "type": "premium", "value": 10, "weight": 3},
+        ],
+    },
+    "buzcagi": {
+        "name": "Buz Çağı Kasa",
+        "price": 100.0,
+        "icon": "❄️",
+        "color": "#5e98d9",
+        "tag": "ÖZEL",
+        "items": [
+            {"name": "12 TL Bakiye", "tier": "consumer", "type": "balance", "value": 12.0, "weight": 50},
+            {"name": "30 TL Bakiye", "tier": "industrial", "type": "balance", "value": 30.0, "weight": 25},
+            {"name": "65 TL Bakiye", "tier": "restricted", "type": "balance", "value": 65.0, "weight": 14},
+            {"name": "130 TL Bakiye", "tier": "classified", "type": "balance", "value": 130.0, "weight": 8},
+            {"name": "14 Gün Premium", "tier": "covert", "type": "premium", "value": 14, "weight": 3},
+        ],
+    },
+    "yanardag": {
+        "name": "Yanardağ Kasa",
+        "price": 150.0,
+        "icon": "🌋",
+        "color": "#eb4b4b",
+        "tag": "ÖZEL",
+        "items": [
+            {"name": "18 TL Bakiye", "tier": "consumer", "type": "balance", "value": 18.0, "weight": 50},
+            {"name": "45 TL Bakiye", "tier": "industrial", "type": "balance", "value": 45.0, "weight": 25},
+            {"name": "95 TL Bakiye", "tier": "restricted", "type": "balance", "value": 95.0, "weight": 14},
+            {"name": "200 TL Bakiye", "tier": "classified", "type": "balance", "value": 200.0, "weight": 8},
+            {"name": "21 Gün Premium", "tier": "covert", "type": "premium", "value": 21, "weight": 3},
+        ],
+    },
+    "efsane": {
+        "name": "Efsane Kasa",
+        "price": 200.0,
+        "icon": "👑",
+        "color": "#eb4b4b",
+        "tag": "EKSKLUSİF",
+        "items": [
+            {"name": "25 TL Bakiye", "tier": "consumer", "type": "balance", "value": 25.0, "weight": 48},
+            {"name": "60 TL Bakiye", "tier": "industrial", "type": "balance", "value": 60.0, "weight": 25},
+            {"name": "130 TL Bakiye", "tier": "restricted", "type": "balance", "value": 130.0, "weight": 15},
+            {"name": "280 TL Bakiye", "tier": "classified", "type": "balance", "value": 280.0, "weight": 8},
+            {"name": "30 Gün Premium", "tier": "covert", "type": "premium", "value": 30, "weight": 3},
+            {"name": "90 Gün Premium", "tier": "extraordinary", "type": "premium", "value": 90, "weight": 1},
+        ],
+    },
+    "imparator": {
+        "name": "İmparator Kasa",
+        "price": 350.0,
+        "icon": "💎",
+        "color": "#ffd700",
+        "tag": "EKSKLUSİF",
+        "items": [
+            {"name": "45 TL Bakiye", "tier": "consumer", "type": "balance", "value": 45.0, "weight": 44},
+            {"name": "110 TL Bakiye", "tier": "industrial", "type": "balance", "value": 110.0, "weight": 25},
+            {"name": "240 TL Bakiye", "tier": "restricted", "type": "balance", "value": 240.0, "weight": 16},
+            {"name": "500 TL Bakiye", "tier": "classified", "type": "balance", "value": 500.0, "weight": 9},
+            {"name": "60 Gün Premium", "tier": "covert", "type": "premium", "value": 60, "weight": 4},
+            {"name": "270 Gün Premium (9 AY)", "tier": "extraordinary", "type": "premium", "value": 270, "weight": 2},
+        ],
+    },
 }
 
 
@@ -200,6 +358,17 @@ def _migrate(connection) -> None:
                     receiver_id BIGINT NOT NULL REFERENCES users(id),
                     body TEXT NOT NULL DEFAULT '',
                     image TEXT NOT NULL DEFAULT '',
+                    created_at BIGINT NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS case_inventory (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    case_key TEXT NOT NULL,
+                    item_name TEXT NOT NULL,
+                    item_tier TEXT NOT NULL,
+                    item_value DOUBLE PRECISION NOT NULL DEFAULT 0,
                     created_at BIGINT NOT NULL
                 )"""
             )
@@ -352,6 +521,18 @@ def _migrate(connection) -> None:
                     image TEXT NOT NULL DEFAULT '',
                     created_at INTEGER NOT NULL,
                     FOREIGN KEY(sender_id) REFERENCES users(id)
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS case_inventory (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    case_key TEXT NOT NULL,
+                    item_name TEXT NOT NULL,
+                    item_tier TEXT NOT NULL,
+                    item_value REAL NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
                 )"""
             )
 
@@ -679,7 +860,7 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
             
     balance_pill = f'<span class="balance-pill">Bakiye: {balance_val:.2f} TL</span>' if user else ""
     account = (
-        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/friends" style="color: #b78bff; border-color: #b78bff3d;">👥 Arkadaşlar</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<a class="user-pill" href="/profile/{quote(user)}" title="Profili görüntüle">{esc(user)}{premium_badge}</a><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
+        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/friends" style="color: #b78bff; border-color: #b78bff3d;">👥 Arkadaşlar</a><a class="ghost button" href="/cases" style="color: #ffd700; border-color: #ffd7003d;">🎁 Kasalar</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<a class="user-pill" href="/profile/{quote(user)}" title="Profili görüntüle">{esc(user)}{premium_badge}</a><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
         if user
         else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
     )
@@ -1466,6 +1647,159 @@ poll();
 setInterval(poll, 1500);
 </script>"""
             self.send_html(page(f"Özel: {peer['username']}", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok, body_csrf=csrf_tok))
+        elif path == "/cases":
+            if not user:
+                self.redirect("/login")
+                return
+            with db() as connection:
+                bal_row = connection.execute("SELECT balance FROM users WHERE id=?", (user[1],)).fetchone()
+            balance_val = float(bal_row["balance"]) if bal_row else 0.0
+            sel_key = query.get("c", [""])[0]
+            if sel_key not in CASES:
+                sel_key = "kumbara"
+            case = CASES[sel_key]
+            total_w = sum(i["weight"] for i in case["items"])
+            def item_html(it):
+                tier = TIER_INFO[it["tier"]]
+                label = it["name"]
+                pct = it["weight"] / total_w * 100
+                return f'<div class="case-item" data-tier="{it["tier"]}" style="--tier:{tier["color"]}"><span class="case-item-star">{tier["star"]}</span><span class="case-item-name">{esc(label)}</span><span class="case-item-pct">{pct:.2f}%</span></div>'
+            item_rows = "".join(item_html(i) for i in case["items"])
+            case_cards = "".join(
+                f'<a class="case-card{" active" if k == sel_key else ""}" href="/cases?c={k}" style="--case:{c["color"]}"><span class="case-icon">{c["icon"]}</span><h3>{esc(c["name"])}</h3><span class="case-tag">{c["tag"]}</span><span class="case-price">₺{c["price"]:.0f}</span></a>'
+                for k, c in CASES.items()
+            )
+            balance_pill = f'<div class="case-balance">Bakiyen: <strong>{balance_val:.2f} TL</strong></div>'
+            body = f"""<section class="page-head"><div><div class="eyebrow">KASA AÇMA</div><h1>🎁 Kasalar</h1><p class="lead">Bakiyenle kasa aç, CS2 tarzı ödüller kazan. En nadir ödül: <strong style="color:#ffd700;">9 AYLIK PREMIUM</strong>!</p></div>{balance_pill}</section>
+<section class="case-grid">{case_cards}</section>
+<section class="case-viewer" data-case="{sel_key}">
+  <div class="case-viewer-head"><span class="case-icon big">{case["icon"]}</span><div><h2>{esc(case["name"])} <small>₺{case["price"]:.0f} ile aç</small></h2><p class="muted">{esc(case["tag"])} kasa · {len(case["items"])} ödül</p></div>
+  <button class="button primary big-open" id="case-open-btn">🔓 Kasayı Aç (₺{case["price"]:.0f})</button></div>
+  <div class="case-items">{item_rows}</div>
+  <div class="case-odds"><div class="eyebrow">ÇIKMA ORANLARI</div><div class="case-items">{item_rows}</div></div>
+</section>
+<div class="case-overlay" id="case-overlay">
+  <div class="case-unbox" id="case-unbox"></div>
+  <div class="case-reveal" id="case-reveal"></div>
+  <button class="button primary" id="case-close" style="display:none;">Tamam</button>
+</div>
+<script>
+const CASES_JS = {json.dumps({k: {"name": c["name"], "price": c["price"], "icon": c["icon"], "color": c["color"], "items": [{"name": i["name"], "tier": i["tier"], "type": i["type"], "value": i["value"]} for i in c["items"]]} for k, c in CASES.items()}, ensure_ascii=False)};
+const TIERS = {json.dumps(TIER_INFO, ensure_ascii=False)};
+const openBtn = document.getElementById("case-open-btn");
+const overlay = document.getElementById("case-overlay");
+const unbox = document.getElementById("case-unbox");
+const reveal = document.getElementById("case-reveal");
+const closeBtn = document.getElementById("case-close");
+let busy = false;
+
+function tickSound() {{
+  try {{
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = "square"; o.frequency.value = 320;
+    g.gain.setValueAtTime(0.04, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.06);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime + 0.06);
+  }} catch(e) {{}}
+}}
+
+function winSound(rarity) {{
+  try {{
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const base = rarity === "extraordinary" ? 523.25 : rarity === "covert" ? 440 : rarity === "classified" ? 392 : 330;
+    [0, 0.08, 0.16].forEach((t, i) => {{
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = "triangle"; o.frequency.value = base * Math.pow(1.06, i);
+      g.gain.setValueAtTime(0.12, ctx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.35);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.4);
+    }});
+  }} catch(e) {{}}
+}}
+
+openBtn.addEventListener("click", () => {{
+  if (busy) return;
+  busy = true;
+  const ck = document.querySelector(".case-viewer").dataset.case;
+  overlay.style.display = "flex";
+  reveal.style.display = "none";
+  closeBtn.style.display = "none";
+  unbox.innerHTML = "";
+  for (let i = 0; i < 24; i++) {{
+    const item = CASES_JS[ck].items[Math.floor(Math.random() * CASES_JS[ck].items.length)];
+    const d = document.createElement("div");
+    d.className = "unbox-cell";
+    d.style.setProperty("--tier", TIERS[item.tier].color);
+    d.textContent = item.tier === "extraordinary" ? "💎" : "🎁";
+    unbox.appendChild(d);
+  }}
+  const rollTicks = 14 + Math.floor(Math.random() * 8);
+  let t = 0;
+  const interval = setInterval(() => {{
+    unbox.scrollLeft += 26;
+    tickSound();
+    t++;
+    if (t >= rollTicks) {{
+      clearInterval(interval);
+      openCaseResult(ck);
+    }}
+  }}, 85);
+}});
+
+function openCaseResult(ck) {{
+  fetch("/cases/open", {{
+    method: "POST",
+    headers: {{"Content-Type": "application/json"}},
+    body: JSON.stringify({{case_key: ck, csrf_token: document.body.dataset.csrf}})
+  }})
+  .then(r => r.json())
+  .then(d => {{
+    busy = false;
+    if (!d.ok) {{
+      reveal.style.display = "flex";
+      reveal.innerHTML = '<h2 style="color:#ff6b6b;">' + d.error + '</h2>';
+      closeBtn.style.display = "inline-block";
+      return;
+    }}
+    const tier = TIERS[d.item.tier] || {{name: "Ödül", color: "#fff"}};
+    winSound(d.item.tier);
+    reveal.style.display = "flex";
+    reveal.innerHTML = '<div class="case-reveal-inner" style="--tier:' + tier.color + '"><span class="case-reveal-icon">' + (d.item.tier === "extraordinary" ? "👑" : "🎉") + '</span><span class="case-reveal-rarity">' + tier.star + '</span><h2>' + d.item.name + '</h2><p style="color:' + tier.color + ';font-weight:700;">' + tier.name + '</p><p class="muted">' + (d.balance != null ? "Yeni bakiyen: " + d.balance.toFixed(2) + " TL" : "") + '</p></div>';
+    closeBtn.style.display = "inline-block";
+  }})
+  .catch(() => {{ busy = false; reveal.style.display = "flex"; reveal.innerHTML = '<h2 style="color:#ff6b6b;">Bağlantı hatası</h2>'; closeBtn.style.display = "inline-block"; }});
+}}
+
+closeBtn.addEventListener("click", () => {{
+  overlay.style.display = "none";
+  location.reload();
+}});
+</script>"""
+            self.send_html(page("Kasalar", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok, body_csrf=csrf_tok))
+        elif path == "/inventory":
+            if not user:
+                self.redirect("/login")
+                return
+            with db() as connection:
+                rows = connection.execute("SELECT case_key, item_name, item_tier, item_value, created_at FROM case_inventory WHERE user_id=? ORDER BY created_at DESC LIMIT 60", (user[1],)).fetchall()
+            if not rows:
+                body = f"""<section class="page-head"><div><div class="eyebrow">ENVANTER</div><h1>🎒 Envanterin</h1><p class="lead">Kasalardan kazandığın ödüller burada birikir.</p></div></section>
+<section class="auth-card" style="max-width:560px;margin:0 auto;"><div class="empty-state"><h2>Envanter boş</h2><p class="muted">Henüz hiç kasa açmadın. <a href="/cases">Kasalar</a> sekmesinden şansını dene!</p></div></section>"""
+                self.send_html(page("Envanter", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+                return
+            inv_cards = "".join(
+                f'<div class="inv-item" style="--tier:{TIER_INFO[r["item_tier"]]["color"]}"><span class="case-item-star">{TIER_INFO[r["item_tier"]]["star"]}</span><span class="inv-name">{esc(r["item_name"])}</span><span class="inv-meta">{time.strftime("%d.%m.%Y", time.localtime(r["created_at"]))}</span></div>'
+                for r in rows
+            )
+            body = f"""<section class="page-head"><div><div class="eyebrow">ENVANTER</div><h1>🎒 Envanterin</h1><p class="lead">Kasalardan kazandığın ödüller burada birikir.</p></div></section>
+<section class="case-grid" style="max-width:720px;margin:0 auto;"><div class="inv-list">{inv_cards}</div></section>
+<p class="muted" style="text-align:center;margin-top:20px;"><a href="/cases">🎁 Yeni kasa aç →</a></p>"""
+            self.send_html(page("Envanter", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
         elif path == "/login":
             q_text, c_val = generate_captcha()
             fields = f'<label>Kullanıcı adı<input name="username" autocomplete="username" required maxlength="24"></label><label>Şifre<input name="password" type="password" autocomplete="current-password" required></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
@@ -2372,6 +2706,60 @@ setInterval(poll, 1500);
                     (current[1], peer["id"], body_text, image_data, int(time.time())),
                 )
             self.send_json({"ok": True})
+            return
+        elif path == "/cases/open":
+            if not current:
+                self.send_json({"ok": False, "error": "Giriş yapmalısın."}, 401)
+                return
+            if not self.verify_csrf(fields):
+                self.send_json({"ok": False, "error": "CSRF doğrulaması başarısız."}, 403)
+                return
+            if not rate_allowed(f"{ip}:cases:{current[1]}", "cases/open"):
+                self.send_json({"ok": False, "error": "Çok hızlı kasa açıyorsun. Biraz bekle."}, 429)
+                return
+            case_key = fields.get("case_key", "").strip()
+            case = CASES.get(case_key)
+            if not case:
+                self.send_json({"ok": False, "error": "Kasa bulunamadı."}, 404)
+                return
+            with db() as connection:
+                urow = connection.execute("SELECT balance, premium_until FROM users WHERE id=?", (current[1],)).fetchone()
+                if not urow:
+                    self.send_json({"ok": False, "error": "Kullanıcı bulunamadı."}, 404)
+                    return
+                balance = float(urow["balance"])
+                if balance < case["price"]:
+                    self.send_json({"ok": False, "error": f"Yetersiz bakiye. Gerekli: ₺{case['price']:.0f}"}, 400)
+                    return
+                total_w = sum(i["weight"] for i in case["items"])
+                roll = random.uniform(0, total_w)
+                chosen = case["items"][-1]
+                for it in case["items"]:
+                    if roll < it["weight"]:
+                        chosen = it
+                        break
+                    roll -= it["weight"]
+                if chosen["type"] == "balance":
+                    new_bal = balance - case["price"] + chosen["value"]
+                    connection.execute("UPDATE users SET balance=? WHERE id=?", (new_bal, current[1]))
+                    payload_balance = new_bal
+                else:
+                    base = max(int(time.time()), int(urow["premium_until"]))
+                    new_until = base + int(chosen["value"]) * 86400
+                    connection.execute("UPDATE users SET balance=balance-?, premium_until=? WHERE id=?", (case["price"], new_until, current[1]))
+                    payload_balance = None
+                connection.execute(
+                    "INSERT INTO case_inventory(user_id, case_key, item_name, item_tier, item_value, created_at) VALUES(?,?,?,?,?,?)",
+                    (current[1], case_key, chosen["name"], chosen["tier"], chosen["value"], int(time.time())),
+                )
+            tier = TIER_INFO[chosen["tier"]]
+            log_event(f"[KASA] '{username}' {case['name']} açtı → {chosen['name']} ({tier['name']}).")
+            self.send_json({
+                "ok": True,
+                "item": {"name": chosen["name"], "tier": chosen["tier"]},
+                "balance": payload_balance,
+                "case_name": case["name"],
+            })
             return
         elif path == "/profile/update":
             if not current:
