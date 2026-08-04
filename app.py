@@ -974,12 +974,6 @@ class Handler(BaseHTTPRequestHandler):
                 for f in sorted(PAID_CHEATS_DIR.iterdir(), key=lambda p: p.name.lower()):
                     if f.is_file() and f.name.lower() != "readme.md":
                         files.append(f)
-            readme_txt = ""
-            if (PAID_CHEATS_DIR / "README.md").is_file():
-                try:
-                    readme_txt = (PAID_CHEATS_DIR / "README.md").read_text("utf-8", "replace")
-                except Exception:
-                    readme_txt = ""
             if not is_premium:
                 with db() as connection:
                     bal_row = connection.execute("SELECT balance FROM users WHERE id=?", (user[1],)).fetchone()
@@ -1026,7 +1020,7 @@ class Handler(BaseHTTPRequestHandler):
         <div class="step"><div class="step-num">4</div><h3>BAŞLAT'a Bas</h3><p>Premium paket launcher üzerinden indirilir ve çalışır.</p></div>
     </div>
 </section>
-<section class="auth-card" style="margin-top: 30px; max-width: none;"><div class="eyebrow">KURULUM NOTU</div><h2>Dikkat</h2><pre style="white-space: pre-wrap; background: #ffffff04; border: 1px solid var(--line); border-radius: 10px; padding: 16px; font-size: 13px; color: #cfd8e3;">{esc(readme_txt) if readme_txt else 'Kurulum notu yakında eklenecek.'}</pre></section>"""
+<section class="reviews" style="margin-top: 40px;"><h2>Premium Kullanıcı Yorumları</h2><div class="review-grid"><div class="review"><blockquote>“Premium paketi loader üzerinden tek tuşla açıyorum, hiç uğraştırmıyor. Filigran meseleleri de kafamızı meşgul etmiyor artık.”</blockquote><cite>Kral Kartal<small>Premium Üye</small></cite></div><div class="review"><blockquote>“Bakiyemi günlük ödül ve çarkla topladım, premium erişimi onunla aldım. Sistem gerçekten iyi kurulmuş.”</blockquote><cite>Gece Şahini<small>Premium Üye</small></cite></div><div class="review"><blockquote>“Loader'dan seçiyorsun, BAŞLAT'a basıyorsun, iş bitti. Site de arayüz de tertemiz, aferin ekibe.”</blockquote><cite>Dijital Kurt<small>Premium Üye</small></cite></div></div></section>"""
             self.send_html(page("Ücretli Hileler", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
         elif path == "/paid-cheats/download":
             if not user:
