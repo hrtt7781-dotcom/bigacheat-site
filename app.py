@@ -24,10 +24,8 @@ from urllib.parse import parse_qs, urlparse, quote, unquote
 ROOT = Path(__file__).resolve().parent
 
 # DATABASE_URL verilirse PostgreSQL (örn. Neon); verilmezse yerelde SQLite.
-# Render'da değişken tanımlanmamışsa bile garantili çalışması için Neon adresi
-# otomatik olarak kullanılır (yalnızca Render ortamında; yerelde SQLite kalır).
-if os.environ.get("RENDER") == "true" and not os.environ.get("DATABASE_URL", "").strip():
-    os.environ["DATABASE_URL"] = "postgresql://neondb_owner:npg_cn1h9ifXeqzJ@ep-lucky-water-assfyizy.c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require"
+# Render'da kalıcı veri için DATABASE_URL ortam değişkenini kendi Neon
+# hesabından al ve panelden set et; aksi halde /data diskine SQLite yazılır.
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 IS_POSTGRES = bool(DATABASE_URL)
 
