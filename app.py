@@ -225,6 +225,16 @@ def _migrate(connection) -> None:
                     created_at BIGINT NOT NULL
                 )"""
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS chat_messages (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    username TEXT NOT NULL,
+                    body TEXT NOT NULL DEFAULT '',
+                    image TEXT NOT NULL DEFAULT '',
+                    created_at BIGINT NOT NULL
+                )"""
+            )
         else:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("""CREATE TABLE IF NOT EXISTS users (
@@ -331,6 +341,17 @@ def _migrate(connection) -> None:
                     filename TEXT NOT NULL,
                     serial TEXT NOT NULL,
                     ip TEXT NOT NULL DEFAULT '',
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS chat_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    body TEXT NOT NULL DEFAULT '',
+                    image TEXT NOT NULL DEFAULT '',
                     created_at INTEGER NOT NULL,
                     FOREIGN KEY(user_id) REFERENCES users(id)
                 )"""
@@ -567,9 +588,10 @@ def validate_game_code(platform: str, code: str) -> bool:
     return False
 
 
-def page(title: str, body: str, user: str | None = None, message: str = "", message_type: str = "", is_premium: bool = False, csrf_token: str = "") -> str:
+def page(title: str, body: str, user: str | None = None, message: str = "", message_type: str = "", is_premium: bool = False, csrf_token: str = "", body_csrf: str = "") -> str:
     premium_badge = ' <span class="premium-badge">PREMIUM</span>' if is_premium else ""
     csrf_input = f'<input type="hidden" name="csrf_token" value="{esc(csrf_token)}">' if csrf_token else ""
+    body_data_attr = f' data-csrf="{esc(body_csrf)}"' if body_csrf else ""
     
     balance_val = 0.0
     if user:
@@ -583,9 +605,9 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
             
     balance_pill = f'<span class="balance-pill">Bakiye: {balance_val:.2f} TL</span>' if user else ""
     account = (
-        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
+        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
         if user
-        else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
+        else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
     )
     msg_class = "notice " + message_type if message_type else "notice"
     notice = f'<div class="{msg_class}">{esc(message)}</div>' if message else ""
@@ -606,7 +628,7 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
 <link rel="icon" type="image/png" href="/static/favicon.png">
 <link rel="apple-touch-icon" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/style.css"></head>
-<body><div class="orb orb-a"></div><div class="orb orb-b"></div><div class="orb orb-c"></div>
+<body><div class="orb orb-a"></div><div class="orb orb-b"></div><div class="orb orb-c"></div>{body_data_attr}
 <header class="topbar"><a class="brand" href="/"><img class="brand-logo" src="/static/favicon.png" alt="Biga Cheat logo" width="34" height="34"><span>Biga Cheat</span></a><nav>{account}</nav></header>
 <main>{notice}{body}</main><footer><b>Biga Cheat</b> · güvenli indirme alanı · Tüm hakları saklıdır © 2026</footer>
 <script>
@@ -824,7 +846,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def parse_json(self) -> dict[str, str]:
         try:
-            length = max(0, min(int(self.headers.get("Content-Length", "0")), 16_384))
+            length = max(0, min(int(self.headers.get("Content-Length", "0")), 1_000_000))
         except (ValueError, TypeError):
             length = 0
         raw = self.rfile.read(length).decode("utf-8", "replace")
@@ -939,6 +961,30 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
             return
+        elif path == "/chat/api/messages":
+            if not user:
+                self.send_json({"ok": False, "error": "giris_gerekli"}, 401)
+                return
+            try:
+                after = int(query.get("after", ["0"])[0] or 0)
+            except ValueError:
+                after = 0
+            with db() as connection:
+                rows = connection.execute(
+                    "SELECT id, username, body, image, created_at FROM chat_messages WHERE id>? ORDER BY id ASC LIMIT 200",
+                    (after,),
+                ).fetchall()
+            messages = []
+            for row in rows:
+                messages.append({
+                    "id": row["id"],
+                    "username": row["username"],
+                    "body": row["body"],
+                    "image": row["image"],
+                    "time": time.strftime("%H:%M", time.localtime(row["created_at"])),
+                })
+            self.send_json({"ok": True, "messages": messages})
+            return
         elif path == "/":
             status = "Hesabınla giriş yaparak sürümü indirebilirsin." if not user else "Hesabın hazır. Güncel sürümü aşağıdan indirebilirsin."
             download_btn = '<a class="button primary" href="/download">Loader’ı indir</a>' if user else '<a class="button primary" href="/register">Ücretsiz hesap oluştur</a><a class="button ghost" href="/login">Giriş yap</a>'
@@ -957,6 +1003,103 @@ class Handler(BaseHTTPRequestHandler):
             update_cards = "".join(f'<a class="update-mini" href="/updates"><span class="update-tag">{esc(row["tag"])}</span><strong>{esc(row["title"])}</strong><small>{format_date(row["created_at"])}</small></a>' for row in latest_updates)
             body += f'<section class="update-strip"><div><div class="eyebrow">SON DUYURULAR</div><h2>Güncellemeler</h2></div><div class="update-mini-list">{update_cards}</div><a class="button ghost" href="/updates">Tümünü gör</a></section>'
             self.send_html(page("Ana sayfa", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/chat":
+            if not user:
+                self.redirect("/login")
+                return
+            body = f"""<section class="page-head"><div><div class="eyebrow">TOPLULUK SOFRASI</div><h1>💬 Sohbet</h1><p class="lead">Herkesin konuştuğu tek ortak alan. Mesaj at, emoji gönder, fotoğraf paylaş.</p></div></section>
+<section class="chat-wrap">
+  <div class="chat-box" id="chat-box"></div>
+  <div class="chat-input-row">
+    <button type="button" class="chat-emoji-btn" id="chat-emoji-btn" title="Emoji">😊</button>
+    <input type="text" id="chat-text" maxlength="400" placeholder="Mesajını yaz...">
+    <label class="chat-photo-btn" title="Fotoğraf gönder">📷<input type="file" id="chat-photo" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none;"></label>
+    <button type="button" class="button primary" id="chat-send">Gönder</button>
+  </div>
+  <div class="chat-emoji-panel" id="chat-emoji-panel" style="display:none;"></div>
+</section>
+<script>
+const CHAT_EMOJIS = ["😀","😁","😂","🤣","😊","😎","🤩","😍","🥰","😜","🤪","😴","🤔","😅","🙃","😉","👍","👎","👏","🙏","💪","🔥","⚡","🚀","🎯","🏆","💯","❤️","💛","💚","💙","🖤","💎","🎁","👑","🍀","🤝","✌️","🤙","👌","😈","🫡","🥶","🤯","🫠","😭","🥹","😤","🤮","🤡","💀","☠️","🫵","👇","➡️","✅","❌","⚠️","💬","🗣️"];
+let lastMsgId = 0;
+const box = document.getElementById("chat-box");
+const textEl = document.getElementById("chat-text");
+const sendBtn = document.getElementById("chat-send");
+const emojiBtn = document.getElementById("chat-emoji-btn");
+const emojiPanel = document.getElementById("chat-emoji-panel");
+const photoEl = document.getElementById("chat-photo");
+
+function escHtml(s) {{
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}}
+
+function bubble(m) {{
+  const mine = m.me ? " me" : "";
+  const img = m.image ? `<img class="chat-img" src="${{m.image}}" alt="foto">` : "";
+  return `<div class="chat-msg${{mine}}"><div class="chat-head"><b>${{escHtml(m.username)}}</b><time>${{escHtml(m.time)}}</time></div><div class="chat-body">${{img}}<span>${{escHtml(m.body)}}
+</span></div></div>`;
+}}
+
+function renderMessages(msgs) {{
+  for (const m of msgs) {{
+    box.insertAdjacentHTML("beforeend", bubble(m));
+    if (m.id > lastMsgId) lastMsgId = m.id;
+  }}
+  box.scrollTop = box.scrollHeight;
+}}
+
+async function poll() {{
+  try {{
+    const r = await fetch("/chat/api/messages?after=" + lastMsgId, {{cache:"no-store"}});
+    if (r.ok) {{
+      const data = await r.json();
+      renderMessages(data.messages || []);
+    }}
+  }} catch(e) {{}}
+}}
+
+function sendText() {{
+  const body = textEl.value.trim();
+  if (!body) return;
+  const payload = {{body: body, csrf_token: document.body.dataset.csrf}};
+  fetch("/chat/send", {{method:"POST", headers:{{"Content-Type":"application/json"}}, body: JSON.stringify(payload)}})
+    .then(r => r.json())
+    .then(d => {{
+      if (d.ok) {{ textEl.value = ""; lastMsgId = 0; poll(); }}
+      else alert(d.error || "Gönderilemedi.");
+    }});
+}}
+
+photoEl.addEventListener("change", () => {{
+  const f = photoEl.files[0];
+  if (!f) return;
+  if (f.size > 300 * 1024) {{ alert("Fotoğraf en fazla 300 KB olmalı."); photoEl.value = ""; return; }}
+  const reader = new FileReader();
+  reader.onload = () => {{
+    fetch("/chat/send", {{method:"POST", headers:{{"Content-Type":"application/json"}}, body: JSON.stringify({{image: reader.result, csrf_token: document.body.dataset.csrf}})}})
+      .then(r => r.json())
+      .then(d => {{ if (d.ok) {{ photoEl.value = ""; lastMsgId = 0; poll(); }} else alert(d.error || "Gönderilemedi."); }});
+  }};
+  reader.readAsDataURL(f);
+}});
+
+emojiBtn.addEventListener("click", () => {{
+  emojiPanel.style.display = emojiPanel.style.display === "none" ? "flex" : "none";
+}});
+
+CHAT_EMOJIS.forEach(e => {{
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "chat-emoji-item"; b.textContent = e;
+  b.addEventListener("click", () => {{ textEl.value += e; textEl.focus(); }});
+  emojiPanel.appendChild(b);
+}});
+
+sendBtn.addEventListener("click", sendText);
+textEl.addEventListener("keydown", (ev) => {{ if (ev.key === "Enter") {{ ev.preventDefault(); sendText(); }} }});
+
+poll();
+setInterval(poll, 1500);
+</script>"""
+            self.send_html(page("Sohbet", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok, body_csrf=csrf_tok))
         elif path == "/login":
             q_text, c_val = generate_captcha()
             fields = f'<label>Kullanıcı adı<input name="username" autocomplete="username" required maxlength="24"></label><label>Şifre<input name="password" type="password" autocomplete="current-password" required></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
@@ -1783,6 +1926,38 @@ class Handler(BaseHTTPRequestHandler):
                 connection.execute("UPDATE users SET balance=balance-?, premium_until=? WHERE id=?", (price, new_until, current[1]))
             log_event(f"[PREMIUM] '{username}' kullanıcısı bakiyesiyle {plan['days']} gün premium erişim satın aldı ({price:.0f} TL).")
             self.redirect("/paid-cheats?msg=Erisim+aktif.+Suresi:+{days}gn.&msg_type=success".replace("{days}", str(plan["days"])))
+        elif path == "/chat/send":
+            if not current:
+                self.send_json({"ok": False, "error": "Giriş yapmalısın."}, 401)
+                return
+            if not self.verify_csrf(fields):
+                self.send_json({"ok": False, "error": "CSRF doğrulaması başarısız."}, 403)
+                return
+            if not rate_allowed(ip, "chat/send"):
+                self.send_json({"ok": False, "error": "Çok hızlı mesaj atıyorsun. Biraz bekle."}, 429)
+                return
+            body_text = fields.get("body", "").strip()
+            image_data = fields.get("image", "").strip()
+            if not body_text and not image_data:
+                self.send_json({"ok": False, "error": "Mesaj boş olamaz."}, 400)
+                return
+            if len(body_text) > 400:
+                self.send_json({"ok": False, "error": "Mesaj en fazla 400 karakter olabilir."}, 400)
+                return
+            if image_data:
+                if len(image_data) > 400_000:
+                    self.send_json({"ok": False, "error": "Fotoğraf çok büyük (en fazla 300 KB)."}, 400)
+                    return
+                if not image_data.startswith("data:image/"):
+                    self.send_json({"ok": False, "error": "Geçersiz fotoğraf."}, 400)
+                    return
+            with db() as connection:
+                connection.execute(
+                    "INSERT INTO chat_messages(user_id, username, body, image, created_at) VALUES(?,?,?,?,?)",
+                    (current[1], username or "?", body_text, image_data, int(time.time())),
+                )
+            self.send_json({"ok": True})
+            return
         elif path == "/register":
             name = fields.get("username", "").strip()
             password = fields.get("password", "")

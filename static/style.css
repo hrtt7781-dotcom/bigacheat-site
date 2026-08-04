@@ -168,3 +168,26 @@ td{color:#dbe9f5}
 
 @media(max-width:850px){.product-grid{grid-template-columns:1fr;padding:0 20px}.steps-grid{grid-template-columns:repeat(2,1fr)}.feature-grid{grid-template-columns:1fr}.review-grid{grid-template-columns:1fr}.steps,.features,.reviews{padding:0 20px}}
 @media(max-width:560px){.steps-grid{grid-template-columns:1fr}.product-card{padding:26px 20px}}
+
+/* Sohbet */
+.chat-wrap{max-width:900px;margin:0 auto 50px;padding:0 28px}
+.chat-box{height:420px;overflow-y:auto;border:1px solid var(--line-gold);border-radius:16px;background:linear-gradient(150deg,#0d1422e6,#080d16f2);padding:16px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}
+.chat-box::-webkit-scrollbar{width:8px}.chat-box::-webkit-scrollbar-thumb{background:#2a3a4d;border-radius:8px}
+.chat-msg{max-width:78%;padding:10px 14px;border-radius:14px;border:1px solid var(--line);background:#101a2a;align-self:flex-start}
+.chat-msg.me{align-self:flex-end;background:#191400;border-color:var(--line-gold)}
+.chat-head{display:flex;gap:8px;align-items:baseline;margin-bottom:4px}
+.chat-head b{color:#ffd76a;font-size:13px}
+.chat-msg.me .chat-head b{color:#ffd700}
+.chat-head time{color:#5f6c80;font-size:11px}
+.chat-body{color:#dbe6f2;font-size:14px;word-break:break-word;white-space:pre-wrap}
+.chat-msg.me .chat-body{color:#f2e9d7}
+.chat-img{max-width:100%;max-height:260px;border-radius:10px;display:block;margin-bottom:6px;border:1px solid #ffffff14}
+.chat-input-row{display:flex;gap:8px;margin-top:12px;align-items:center}
+.chat-input-row input[type=text]{flex:1;border-color:var(--line-gold)}
+.chat-emoji-btn{width:46px;height:46px;border:1px solid var(--line-gold);border-radius:10px;background:#0d1522;color:#ffd76a;font-size:20px;cursor:pointer;flex-shrink:0}
+.chat-photo-btn{width:46px;height:46px;border:1px solid var(--line-gold);border-radius:10px;background:#0d1522;color:#ffd76a;font-size:20px;cursor:pointer;display:grid;place-items:center;flex-shrink:0}
+.chat-emoji-panel{display:flex;flex-wrap:wrap;gap:4px;margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:12px;background:#0a101c;max-height:150px;overflow-y:auto}
+.chat-emoji-item{background:none;border:0;font-size:20px;cursor:pointer;padding:3px;border-radius:6px;line-height:1}
+.chat-emoji-item:hover{background:#ffffff12}
+.chat-empty{color:#5f6c80;text-align:center;padding:30px;font-size:14px}
+@media(max-width:560px){.chat-box{height:360px}.chat-wrap{padding:0 16px}.chat-msg{max-width:88%}}
