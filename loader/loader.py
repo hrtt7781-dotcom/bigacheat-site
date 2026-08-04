@@ -134,7 +134,7 @@ class LoaderApp:
     def __init__(self, root):
         self.root = root
         root.title(APP_NAME)
-        root.geometry("460x560")
+        root.geometry("460x600")
         root.resizable(False, False)
         root.configure(bg="#070d15")
 
@@ -168,10 +168,26 @@ class LoaderApp:
         self.login_btn.pack(fill="x", ipady=9)
 
         self.tab_frame = tk.Frame(container, bg="#070d15")
-        self.tab_btn_free = tk.Button(self.tab_frame, text="🆓 ÜCRETSİZ HİLE", command=lambda: self.select_tab("free"), bg="#123456", fg="white", activebackground="#1a4a75", activeforeground="white", relief="flat", font=("Segoe UI", 10, "bold"), cursor="hand2", disabledforeground="#5b7085")
-        self.tab_btn_paid = tk.Button(self.tab_frame, text="💎 ÜCRETLİ HİLE", command=lambda: self.select_tab("paid"), bg="#3d2f00", fg="#ffd700", activebackground="#5a4400", activeforeground="#ffd700", relief="flat", font=("Segoe UI", 10, "bold"), cursor="hand2", disabledforeground="#5b7085")
-        self.tab_btn_free.pack(side="left", expand=True, fill="x", padx=(0, 4), ipady=8)
-        self.tab_btn_paid.pack(side="left", expand=True, fill="x", padx=(4, 0), ipady=8)
+        self.tab_btn_free = tk.Button(
+            self.tab_frame,
+            text="🆓\nÜCRETSİZ HİLE\nBedava sürüm",
+            command=lambda: self.select_tab("free"),
+            bg="#123456", fg="white", activebackground="#1a4a75", activeforeground="white",
+            relief="flat", font=("Segoe UI", 11, "bold"), cursor="hand2",
+            disabledforeground="#5b7085", justify="center",
+            width=12, padx=10, pady=14,
+        )
+        self.tab_btn_paid = tk.Button(
+            self.tab_frame,
+            text="💎\nÜCRETLİ HİLE\nPremium paket",
+            command=lambda: self.select_tab("paid"),
+            bg="#3d2f00", fg="#ffd700", activebackground="#5a4400", activeforeground="#ffd700",
+            relief="flat", font=("Segoe UI", 11, "bold"), cursor="hand2",
+            disabledforeground="#5b7085", justify="center",
+            width=12, padx=10, pady=14,
+        )
+        self.tab_btn_free.pack(side="left", expand=True, fill="both", padx=(0, 5), ipady=10)
+        self.tab_btn_paid.pack(side="left", expand=True, fill="both", padx=(5, 0), ipady=10)
 
         self.start_btn = tk.Button(container, text="BAŞLAT", command=self.start_selected, bg="#ffd700", fg="#0a0f16", activebackground="#ffe44d", activeforeground="#0a0f16", relief="flat", font=("Segoe UI", 11, "bold"), cursor="hand2")
         self.start_btn.pack_forget()
@@ -214,20 +230,21 @@ class LoaderApp:
         free_selected = selected == "free"
         self.tab_btn_free.config(
             state="normal",
-            bg="#1a4a75" if free_selected else "#123456",
+            bg="#1a6fb8" if free_selected else "#123456",
             fg="white",
-            relief="flat",
-            highlightthickness=1,
-            highlightbackground="#65d9ff" if free_selected else "#123456",
+            relief="solid" if free_selected else "flat",
+            borderwidth=2,
+            highlightthickness=0,
         )
         paid_enabled = getattr(self, "premium", False)
+        paid_selected = selected == "paid"
         self.tab_btn_paid.config(
             state="normal" if paid_enabled else "disabled",
-            bg="#5a4400" if (selected == "paid") else "#3d2f00",
+            bg="#7a5c00" if (paid_selected and paid_enabled) else "#3d2f00",
             fg="#ffd700",
-            relief="flat",
-            highlightthickness=1,
-            highlightbackground="#ffd700" if selected == "paid" else "#3d2f00",
+            relief="solid" if (paid_selected and paid_enabled) else "flat",
+            borderwidth=2,
+            highlightthickness=0,
         )
         self.start_btn.config(state="normal" if (paid_enabled or selected == "free") else "disabled", text="BAŞLAT")
         self.start_btn.pack(fill="x", pady=(12, 0))
