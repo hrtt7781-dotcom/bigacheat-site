@@ -606,9 +606,9 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
 <link rel="icon" type="image/png" href="/static/favicon.png">
 <link rel="apple-touch-icon" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/style.css"></head>
-<body><div class="orb orb-a"></div><div class="orb orb-b"></div>
+<body><div class="orb orb-a"></div><div class="orb orb-b"></div><div class="orb orb-c"></div>
 <header class="topbar"><a class="brand" href="/"><img class="brand-logo" src="/static/favicon.png" alt="Biga Cheat logo" width="34" height="34"><span>Biga Cheat</span></a><nav>{account}</nav></header>
-<main>{notice}{body}</main><footer>Biga Cheat · güvenli indirme alanı</footer>
+<main>{notice}{body}</main><footer><b>Biga Cheat</b> · güvenli indirme alanı · Tüm hakları saklıdır © 2026</footer>
 <script>
     const notice = document.querySelector('.notice.success');
     if (notice && (notice.textContent.includes('ödülü') || notice.textContent.includes('bakiye') || notice.textContent.includes('Bakiye'))) {{
@@ -941,9 +941,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         elif path == "/":
             status = "Hesabınla giriş yaparak sürümü indirebilirsin." if not user else "Hesabın hazır. Güncel sürümü aşağıdan indirebilirsin."
-            body = f"""<section class="hero"><img class="hero-logo" src="/static/logo.png" alt="Biga Cheat logo" width="140" height="140"><div class="eyebrow">CS2 İÇİN ÖZEL SÜRÜM ALANI</div><h1>CS2 için Biga Cheat<span>.</span></h1><p class="lead">Temiz, hızlı ve tek yerden yönetilen sürüm ve proje alanı.</p>
-<div class="hero-actions">{'<a class="button primary" href="/download">Loader’ı indir</a>' if user else '<a class="button primary" href="/register">Ücretsiz hesap oluştur</a><a class="button ghost" href="/login">Giriş yap</a>'}</div></section>
-<section class="panel-grid"><article class="panel"><span class="panel-icon">01</span><h2>Tek hesap</h2><p>Kayıt ol, giriş yap ve indirme alanına güvenli şekilde eriş.</p></article><article class="panel"><span class="panel-icon">02</span><h2>Güncel dosya</h2><p>Yayınlanan sürüm tek bir indirme bağlantısından sunulur.</p></article><article class="panel"><span class="panel-icon">03</span><h2>Projeler</h2><p>Projeler bölümünde kendi arşivini paylaş ve topluluktan keşfet.</p></article></section><p class="status">{status}</p>"""
+            download_btn = '<a class="button primary" href="/download">Loader’ı indir</a>' if user else '<a class="button primary" href="/register">Ücretsiz hesap oluştur</a><a class="button ghost" href="/login">Giriş yap</a>'
+            body = f"""<section class="hero"><img class="hero-logo" src="/static/logo.png" alt="Biga Cheat logo" width="150" height="150"><div class="eyebrow">CS2 İÇİN ÖZEL SÜRÜM</div><h1>CS2 için Biga Cheat<span>.</span></h1><p class="lead">Özel altyapı, otomatik koruma ve tek hesaptan yönetilen premium CS2 sürümü.</p>
+<div class="hero-actions">{download_btn}</div></section>
+<section class="product-grid">
+<article class="product-card free"><span class="product-emoji">🆓</span><h2>Ücretsiz Hile</h2><p>Herkes için hazır ücretsiz sürüm. Kayıt ol, loader’ı indir ve oyuna gir. Sınırsız kullanım.</p><span class="product-tag">BEDAVA</span><div class="product-price">₺0 <small>herkes için</small></div><a class="button" href="/register">Şimdi Başla</a></article>
+<article class="product-card paid"><span class="product-emoji">👑</span><h2>Ücretli Hile</h2><p>Kişiye özel filigranlı premium paket. Daha yüksek avantajlar ve öncelikli destek.</p><span class="product-tag">PREMIUM</span><div class="product-price">₺350 <small>30 gün · ₺800 / 90 gün</small></div><a class="button" href="/paid-cheats">Erişim Satın Al</a></article>
+</section>
+<section class="steps"><h2>Nasıl Aktif Edilir?</h2><div class="steps-grid"><div class="step"><div class="step-num">1</div><h3>Hesap Oluştur</h3><p>Ücretsiz kayıt ol ve hesabına giriş yap.</p></div><div class="step"><div class="step-num">2</div><h3>Loader’ı İndir</h3><p>Güncel loader sürümünü indir ve çalıştır.</p></div><div class="step"><div class="step-num">3</div><h3>Giriş Yap</h3><p>Loader üzerinden site kullanıcı adınla giriş yap.</p></div><div class="step"><div class="step-num">4</div><h3>BAŞLAT’a Bas</h3><p>Seçtiğin sürüm launcher üzerinden çalışır.</p></div></div></section>
+<section class="features"><h2>Biga Cheat Avantajları</h2><div class="feature-grid"><div class="feature"><span class="feature-icon">🛡️</span><h3>Özel Altyapı</h3><p>Her açılışta yenilenen, güvenli çalışma mimarisi.</p></div><div class="feature"><span class="feature-icon">⚡</span><h3>Tek Tıkla Başlat</h3><p>Loader üzerinden tek tuşla sürümü çalıştır.</p></div><div class="feature"><span class="feature-icon">🔒</span><h3>Kişiye Özel Lisans</h3><p>Hesabına bağlı filigranlı premium paketler.</p></div><div class="feature"><span class="feature-icon">🎁</span><h3>Günlük Ödül</h3><p>Her gün çark ve günlük ödül ile bakiye kazan.</p></div><div class="feature"><span class="feature-icon">📈</span><h3>Düzenli Güncelleme</h3><p>Sürümler otomatik olarak loader’a iletilir.</p></div><div class="feature"><span class="feature-icon">🤝</span><h3>Topluluk</h3><p>Projeler ve duyurular ile toplulukla iç içe.</p></div></div></section>
+<section class="reviews"><h2>Kullanıcı Yorumları</h2><div class="review-grid"><div class="review"><blockquote>“Loader üzerinden tek tıkla açılıyor, hiçbir şey uğraştırmıyor. Daha önce bu kadar kolayını görmedim.”</blockquote><cite>Ali Cuts<small>Premium Üye</small></cite></div><div class="review"><blockquote>“Kayıt olup saniyeler içinde oyuna girebiliyorsun. Site de loader da tertemiz.”</blockquote><cite>Legit Şükrü<small>Topluluk Üyesi</small></cite></div><div class="review"><blockquote>“Günlük ödül ve çarktan bakiye topluyorum, premium erişimi bakiyemle alıyorum. Çok mantıklı.”</blockquote><cite>Dreads<small>Premium Üye</small></cite></div></div></section>
+<p class="status">{status}</p>"""
             with db() as connection:
                 latest_updates = connection.execute("SELECT title, body, tag, created_at FROM updates ORDER BY created_at DESC LIMIT 2").fetchall()
             update_cards = "".join(f'<a class="update-mini" href="/updates"><span class="update-tag">{esc(row["tag"])}</span><strong>{esc(row["title"])}</strong><small>{format_date(row["created_at"])}</small></a>' for row in latest_updates)
