@@ -1744,12 +1744,12 @@ const reveal = document.getElementById("case-reveal");
 const closeBtn = document.getElementById("case-close");
 let busy = false;
 
-function tickSound() {{
+function tickSound(freq) {{
   try {{
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const o = ctx.createOscillator();
     const g = ctx.createGain();
-    o.type = "square"; o.frequency.value = 320;
+    o.type = "square"; o.frequency.value = freq || 320;
     g.gain.setValueAtTime(0.04, ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.06);
     o.connect(g); g.connect(ctx.destination);
@@ -1793,8 +1793,8 @@ function revealHtml(d) {{
 }}
 
 function startRoll(ck, d) {{
-  const CELLS = 48;
-  const winIdx = 20 + Math.floor(Math.random() * 8);
+  const CELLS = 56;
+  const winIdx = 34 + Math.floor(Math.random() * 6);
   const cells = [];
   for (let i = 0; i < CELLS; i++) {{
     const item = i === winIdx ? d.item : CASES_JS[ck].items[Math.floor(Math.random() * CASES_JS[ck].items.length)];
@@ -1806,12 +1806,24 @@ function startRoll(ck, d) {{
     cells.push(el);
   }}
   const markerX = unbox.clientWidth / 2;
-  const target = Math.max(0, cells[winIdx].offsetLeft + cells[winIdx].offsetWidth / 2 - markerX);
-  const duration = 27500 + Math.random() * 5000;
-  const t0 = performance.now();
+  let step = 0;
   let lastUnder = -1;
 
-  function highlightUnderMarker() {{
+  function stepDelay(i) {{
+    const p = i / (CELLS - 1);
+    if (p < 0.45) return 24 + Math.random() * 14;
+    const q = (p - 0.45) / 0.55;
+    return 40 + Math.pow(q, 2.6) * 620;
+  }}
+
+  function tickSoundFreq(i) {{
+    const p = i / (CELLS - 1);
+    return 880 - p * 520;
+  }}
+
+  function tick() {{
+    const targetCell = step >= CELLS - 1 ? cells[winIdx] : cells[step];
+    unbox.scrollLeft = Math.max(0, targetCell.offsetLeft + targetCell.offsetWidth / 2 - markerX);
     let best = -1, bestDist = Infinity;
     cells.forEach((c, i) => {{
       const cx = c.offsetLeft + c.offsetWidth / 2 - unbox.scrollLeft;
@@ -1821,22 +1833,16 @@ function startRoll(ck, d) {{
     cells.forEach(c => c.classList.remove("under-marker"));
     if (best >= 0) {{
       cells[best].classList.add("under-marker");
-      if (best !== lastUnder) {{ tickSound(); lastUnder = best; }}
+      if (best !== lastUnder) {{ tickSound(tickSoundFreq(step)); lastUnder = best; }}
     }}
-  }}
-
-  function frame(now) {{
-    const p = Math.min(1, (now - t0) / duration);
-    const e = 1 - Math.pow(1 - p, 3);
-    unbox.scrollLeft = target * e;
-    highlightUnderMarker();
-    if (p < 1) {{
-      requestAnimationFrame(frame);
+    if (step < CELLS - 1) {{
+      step++;
+      setTimeout(tick, stepDelay(step));
     }} else {{
       finishRoll(d, cells[winIdx]);
     }}
   }}
-  requestAnimationFrame(frame);
+  tick();
 }}
 
 function finishRoll(d, winCell) {{
