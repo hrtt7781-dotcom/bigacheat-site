@@ -88,6 +88,7 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "admin/login": (5, 300),
     "wheel/spin": (10, 300),
     "loader/login": (10, 300),
+    "chat/send": (1, 10),
 }
 
 
@@ -1041,6 +1042,7 @@ function bubble(m) {{
 
 function renderMessages(msgs) {{
   for (const m of msgs) {{
+    if (m.id <= lastMsgId) continue;
     box.insertAdjacentHTML("beforeend", bubble(m));
     if (m.id > lastMsgId) lastMsgId = m.id;
   }}
@@ -1064,7 +1066,7 @@ function sendText() {{
   fetch("/chat/send", {{method:"POST", headers:{{"Content-Type":"application/json"}}, body: JSON.stringify(payload)}})
     .then(r => r.json())
     .then(d => {{
-      if (d.ok) {{ textEl.value = ""; lastMsgId = 0; poll(); }}
+      if (d.ok) {{ textEl.value = ""; poll(); }}
       else alert(d.error || "Gönderilemedi.");
     }});
 }}
@@ -1077,7 +1079,7 @@ photoEl.addEventListener("change", () => {{
   reader.onload = () => {{
     fetch("/chat/send", {{method:"POST", headers:{{"Content-Type":"application/json"}}, body: JSON.stringify({{image: reader.result, csrf_token: document.body.dataset.csrf}})}})
       .then(r => r.json())
-      .then(d => {{ if (d.ok) {{ photoEl.value = ""; lastMsgId = 0; poll(); }} else alert(d.error || "Gönderilemedi."); }});
+      .then(d => {{ if (d.ok) {{ photoEl.value = ""; poll(); }} else alert(d.error || "Gönderilemedi."); }});
   }};
   reader.readAsDataURL(f);
 }});
