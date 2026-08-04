@@ -33,6 +33,7 @@ from tkinter import messagebox, ttk
 BASE_URL = "https://biga-cheat-site.onrender.com"
 APP_NAME = "Biga Cheat Loader"
 EXE_NAME = "CS2_Injector.exe"
+FREE_EXE_NAME = "Biga Cheat-Cs2-Modified.exe"
 VERSION = "1.0.0"
 
 
@@ -242,6 +243,17 @@ class LoaderApp:
             if not updating:
                 self.set_loading(False)
 
+    def loader_dir(self):
+        if getattr(sys, "frozen", False) and sys.executable:
+            base = os.path.dirname(os.path.abspath(sys.executable))
+            if os.access(base, os.W_OK):
+                return base
+        home = os.path.expanduser("~")
+        downloads = os.path.join(home, "Downloads")
+        if os.path.isdir(downloads) and os.access(downloads, os.W_OK):
+            return downloads
+        return tempfile.gettempdir()
+
     def start_download(self, dl_type):
         if dl_type == "paid" and not getattr(self, "premium", False):
             messagebox.showwarning(APP_NAME, "Ücretli Hile için premium üyelik gerekli. Bakiye yükleyip Ücretli Hileler sayfasından erişim satın al.")
@@ -284,20 +296,21 @@ class LoaderApp:
                     msg += f"\nKalan premium süren: {max(0, (self.until - int(time.time())) // 86400)} gün."
                 msg += "\n\nDosya paylaşımı yasaktır — arşiv senin adına kayıtlı."
             else:
-                free_path = os.path.join(temp_dir, "Biga-Cheat-Cs2.exe")
+                dest_dir = self.loader_dir()
+                os.makedirs(dest_dir, exist_ok=True)
+                free_path = os.path.join(dest_dir, FREE_EXE_NAME)
                 request_download(self.token, free_path, "free")
                 self.set_status("Ücretsiz sürüm başlatılıyor...")
                 if os.name == "nt":
                     try:
                         import ctypes
-                        ctypes.windll.shell32.ShellExecuteW(None, "runas", free_path, None, temp_dir, 1)
+                        ctypes.windll.shell32.ShellExecuteW(None, "runas", free_path, None, dest_dir, 1)
                     except Exception:
-                        subprocess.Popen([free_path], cwd=temp_dir)
+                        subprocess.Popen([free_path], cwd=dest_dir)
                 else:
-                    subprocess.Popen([free_path], cwd=temp_dir)
-                cleanup_after_exit(temp_dir, temp_dir)
+                    subprocess.Popen([free_path], cwd=dest_dir)
                 temp_dir = None
-                msg = "Giriş başarılı.\nÜcretsiz sürüm başlatıldı.\n\nYüksek avantajlar için Ücretli Hile'yi deneyebilirsin."
+                msg = f"Giriş başarılı.\nÜcretsiz sürüm başlatıldı.\nDosya kalıcı olarak kaydedildi:\n{dest_dir}\n\nYüksek avantajlar için Ücretli Hile'yi deneyebilirsin."
             self.set_status("Tamamlandı!", "#7cf29c")
             messagebox.showinfo(APP_NAME, msg)
         except RuntimeError as exc:
