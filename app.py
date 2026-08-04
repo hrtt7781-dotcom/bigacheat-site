@@ -1712,17 +1712,89 @@ function tickSound() {{
 function winSound(rarity) {{
   try {{
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const base = rarity === "extraordinary" ? 523.25 : rarity === "covert" ? 440 : rarity === "classified" ? 392 : 330;
-    [0, 0.08, 0.16].forEach((t, i) => {{
+    const seq = {{
+      consumer: [[330, .08], [330, .08], [392, .14]],
+      industrial: [[392, .08], [392, .08], [523, .16]],
+      restricted: [[392, .08], [523, .08], [659, .12], [784, .3]],
+      classified: [[392, .08], [523, .08], [659, .08], [784, .14], [1046, .45]],
+      covert: [[392, .09], [523, .09], [659, .09], [784, .1], [1046, .14], [1318, .55]],
+      extraordinary: [[392, .1], [523, .1], [659, .1], [784, .12], [1046, .14], [1318, .16], [1568, .7]]
+    }}[rarity] || [[330, .1], [330, .1]];
+    let t = ctx.currentTime;
+    seq.forEach(n => {{
       const o = ctx.createOscillator();
       const g = ctx.createGain();
-      o.type = "triangle"; o.frequency.value = base * Math.pow(1.06, i);
-      g.gain.setValueAtTime(0.12, ctx.currentTime + t);
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.35);
+      o.type = "triangle"; o.frequency.value = n[0];
+      g.gain.setValueAtTime(0.14, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + n[1]);
       o.connect(g); g.connect(ctx.destination);
-      o.start(ctx.currentTime + t); o.stop(ctx.currentTime + t + 0.4);
+      o.start(t); o.stop(t + n[1] + 0.05);
+      t += n[1] + 0.03;
     }});
   }} catch(e) {{}}
+}}
+
+function revealHtml(d) {{
+  const tier = TIERS[d.item.tier] || {{name: "Ödül", color: "#fff"}};
+  return '<div class="case-reveal-inner" style="--tier:' + tier.color + '"><span class="case-reveal-icon">' + (d.item.tier === "extraordinary" ? "👑" : "🎉") + '</span><span class="case-reveal-rarity">' + tier.star + '</span><h2>' + d.item.name + '</h2><p style="color:' + tier.color + ';font-weight:700;">' + tier.name + '</p><p class="muted">' + (d.balance != null ? "Yeni bakiyen: " + d.balance.toFixed(2) + " TL" : "") + '</p></div>';
+}}
+
+function startRoll(ck, d) {{
+  const winIdx = 8 + Math.floor(Math.random() * 6);
+  const cells = [];
+  for (let i = 0; i < 24; i++) {{
+    const item = i === winIdx ? d.item : CASES_JS[ck].items[Math.floor(Math.random() * CASES_JS[ck].items.length)];
+    const el = document.createElement("div");
+    el.className = "unbox-cell";
+    el.style.setProperty("--tier", TIERS[item.tier].color);
+    el.textContent = item.tier === "extraordinary" ? "💎" : "🎁";
+    unbox.appendChild(el);
+    cells.push(el);
+  }}
+  const markerX = unbox.clientWidth / 2;
+  const target = Math.max(0, cells[winIdx].offsetLeft + cells[winIdx].offsetWidth / 2 - markerX);
+  const duration = 9500 + Math.random() * 1500;
+  const t0 = performance.now();
+  let lastUnder = -1;
+
+  function highlightUnderMarker() {{
+    let best = -1, bestDist = Infinity;
+    cells.forEach((c, i) => {{
+      const cx = c.offsetLeft + c.offsetWidth / 2 - unbox.scrollLeft;
+      const dist = Math.abs(cx - markerX);
+      if (dist < bestDist) {{ bestDist = dist; best = i; }}
+    }});
+    cells.forEach(c => c.classList.remove("under-marker"));
+    if (best >= 0) {{
+      cells[best].classList.add("under-marker");
+      if (best !== lastUnder) {{ tickSound(); lastUnder = best; }}
+    }}
+  }}
+
+  function frame(now) {{
+    const p = Math.min(1, (now - t0) / duration);
+    const e = 1 - Math.pow(1 - p, 3);
+    unbox.scrollLeft = target * e;
+    highlightUnderMarker();
+    if (p < 1) {{
+      requestAnimationFrame(frame);
+    }} else {{
+      finishRoll(d, cells[winIdx]);
+    }}
+  }}
+  requestAnimationFrame(frame);
+}}
+
+function finishRoll(d, winCell) {{
+  winCell.classList.add("win");
+  winSound(d.item.tier);
+  const delay = {{consumer: 350, industrial: 500, restricted: 800, classified: 1200, covert: 1800, extraordinary: 2500}}[d.item.tier] || 500;
+  setTimeout(() => {{
+    reveal.style.display = "flex";
+    reveal.innerHTML = revealHtml(d);
+    closeBtn.style.display = "inline-block";
+    busy = false;
+  }}, delay);
 }}
 
 openBtn.addEventListener("click", () => {{
@@ -1733,48 +1805,6 @@ openBtn.addEventListener("click", () => {{
   reveal.style.display = "none";
   closeBtn.style.display = "none";
   unbox.innerHTML = "";
-  for (let i = 0; i < 24; i++) {{
-    const item = CASES_JS[ck].items[Math.floor(Math.random() * CASES_JS[ck].items.length)];
-    const d = document.createElement("div");
-    d.className = "unbox-cell";
-    d.style.setProperty("--tier", TIERS[item.tier].color);
-    d.textContent = item.tier === "extraordinary" ? "💎" : "🎁";
-    unbox.appendChild(d);
-  }}
-  function highlightUnderMarker() {{
-    const cells = unbox.querySelectorAll(".unbox-cell");
-    const markerX = unbox.clientWidth / 2;
-    let best = null, bestDist = Infinity;
-    cells.forEach(c => {{
-      const cx = c.offsetLeft + c.offsetWidth / 2 - unbox.scrollLeft;
-      const dist = Math.abs(cx - markerX);
-      if (dist < bestDist) {{ bestDist = dist; best = c; }}
-    }});
-    cells.forEach(c => c.classList.remove("under-marker"));
-    if (best) best.classList.add("under-marker");
-  }}
-  highlightUnderMarker();
-  const rollTicks = 14 + Math.floor(Math.random() * 8);
-  let t = 0;
-  const interval = setInterval(() => {{
-    unbox.scrollLeft += 26;
-    highlightUnderMarker();
-    tickSound();
-    t++;
-    if (t >= rollTicks) {{
-      clearInterval(interval);
-      const winner = unbox.querySelector(".under-marker");
-      if (winner) {{
-        winner.classList.add("win");
-        setTimeout(() => openCaseResult(ck), 420);
-      }} else {{
-        openCaseResult(ck);
-      }}
-    }}
-  }}, 85);
-}});
-
-function openCaseResult(ck) {{
   fetch("/cases/open", {{
     method: "POST",
     headers: {{"Content-Type": "application/json"}},
@@ -1782,21 +1812,17 @@ function openCaseResult(ck) {{
   }})
   .then(r => r.json())
   .then(d => {{
-    busy = false;
     if (!d.ok) {{
       reveal.style.display = "flex";
       reveal.innerHTML = '<h2 style="color:#ff6b6b;">' + d.error + '</h2>';
       closeBtn.style.display = "inline-block";
+      busy = false;
       return;
     }}
-    const tier = TIERS[d.item.tier] || {{name: "Ödül", color: "#fff"}};
-    winSound(d.item.tier);
-    reveal.style.display = "flex";
-    reveal.innerHTML = '<div class="case-reveal-inner" style="--tier:' + tier.color + '"><span class="case-reveal-icon">' + (d.item.tier === "extraordinary" ? "👑" : "🎉") + '</span><span class="case-reveal-rarity">' + tier.star + '</span><h2>' + d.item.name + '</h2><p style="color:' + tier.color + ';font-weight:700;">' + tier.name + '</p><p class="muted">' + (d.balance != null ? "Yeni bakiyen: " + d.balance.toFixed(2) + " TL" : "") + '</p></div>';
-    closeBtn.style.display = "inline-block";
+    startRoll(ck, d);
   }})
   .catch(() => {{ busy = false; reveal.style.display = "flex"; reveal.innerHTML = '<h2 style="color:#ff6b6b;">Bağlantı hatası</h2>'; closeBtn.style.display = "inline-block"; }});
-}}
+}});
 
 closeBtn.addEventListener("click", () => {{
   overlay.style.display = "none";
