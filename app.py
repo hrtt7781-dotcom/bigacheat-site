@@ -142,38 +142,51 @@ SKINS = {
 }
 
 # weight değerleri: yüksek tier daha nadir çıkar.
+# items listesi: ("skin_key", weight) veya ("balance", weight, TL) / ("premium", weight, gün)
 _CASE_DEFS = {
     "kumbara": {"name": "Kumbara Kasa", "price": 40.0, "icon": "🐷", "color": "#b0c3d9", "tag": "BAŞLANGIÇ",
-                "items": [("mp5-desert", 60), ("p250-pasli", 40)]},
+                "items": [("mp5-desert", 60), ("p250-pasli", 40), ("balance", 20, 10), ("premium", 8, 1)]},
     "mavzer": {"name": "Mavzer Kasa", "price": 60.0, "icon": "🔫", "color": "#5e98d9", "tag": "GÜNCEL",
-               "items": [("ump-sokak", 55), ("mac10-alev", 30), ("mp7-neon", 15)]},
+               "items": [("ump-sokak", 55), ("mac10-alev", 30), ("mp7-neon", 15), ("balance", 15, 15), ("premium", 6, 1)]},
     "cepane": {"name": "Cepane Kasa", "price": 80.0, "icon": "📦", "color": "#8847ff", "tag": "POPÜLER",
-               "items": [("sg553-kamuflaj", 45), ("galil-renk", 35), ("famas-kristal", 20)]},
+               "items": [("sg553-kamuflaj", 45), ("galil-renk", 35), ("famas-kristal", 20), ("balance", 15, 20), ("premium", 5, 2)]},
     "savascı": {"name": "Savaşçı Kasa", "price": 110.0, "icon": "🪖", "color": "#8847ff", "tag": "POPÜLER",
-                "items": [("awp-gece", 45), ("m4a4-asindirici", 35), ("usps-altincizgi", 20)]},
+                "items": [("awp-gece", 45), ("m4a4-asindirici", 35), ("usps-altincizgi", 20), ("balance", 14, 25), ("premium", 5, 2)]},
     "yildiz": {"name": "Yıldız Kasa", "price": 140.0, "icon": "⭐", "color": "#d32ce6", "tag": "GÜNCEL",
-               "items": [("ak47-pas", 50), ("deagle-mekanik", 35), ("awp-medusa", 15)]},
+               "items": [("ak47-pas", 50), ("deagle-mekanik", 35), ("awp-medusa", 15), ("balance", 12, 35), ("premium", 4, 3)]},
     "spektrum": {"name": "Spektrum Kasa", "price": 180.0, "icon": "🌈", "color": "#d32ce6", "tag": "GÜNCEL",
-                 "items": [("m4a1s-buz", 45), ("mp9-gokkusagi", 40), ("awp-neon", 15)]},
+                 "items": [("m4a1s-buz", 45), ("mp9-gokkusagi", 40), ("awp-neon", 15), ("balance", 12, 45), ("premium", 4, 3)]},
     "buzcagi": {"name": "Buz Çağı Kasa", "price": 220.0, "icon": "❄️", "color": "#5e98d9", "tag": "ÖZEL",
-                "items": [("ak47-buzkral", 65), ("awp-kiyamet", 35)]},
+                "items": [("ak47-buzkral", 65), ("awp-kiyamet", 35), ("balance", 10, 55), ("premium", 4, 5)]},
     "yanardag": {"name": "Yanardağ Kasa", "price": 280.0, "icon": "🌋", "color": "#eb4b4b", "tag": "ÖZEL",
-                 "items": [("m4a4-lav", 65), ("deagle-ejder", 35)]},
+                 "items": [("m4a4-lav", 65), ("deagle-ejder", 35), ("balance", 10, 70), ("premium", 4, 7)]},
     "efsane": {"name": "Efsane Kasa", "price": 360.0, "icon": "👑", "color": "#eb4b4b", "tag": "EKSKLUSİF",
-               "items": [("ak47-altinaslan", 80), ("karambit-golge", 20)]},
+               "items": [("ak47-altinaslan", 80), ("karambit-golge", 20), ("balance", 10, 90), ("premium", 4, 10)]},
     "imparator": {"name": "İmparator Kasa", "price": 500.0, "icon": "💎", "color": "#ffd700", "tag": "EKSKLUSİF",
-                  "items": [("awp-imparator", 80), ("karambit-kizil", 20)]},
+                  "items": [("awp-imparator", 80), ("karambit-kizil", 20), ("balance", 10, 125), ("premium", 4, 14)]},
 }
 
 CASES = {}
 for _ck, _cd in _CASE_DEFS.items():
     _items = []
-    for _skin_key, _weight in _cd["items"]:
-        _s = SKINS[_skin_key]
-        _items.append({
-            "name": _s["name"], "tier": _s["tier"], "type": "skin",
-            "skin": _skin_key, "icon": _s["icon"], "value": _s["value"], "weight": _weight,
-        })
+    for _entry in _cd["items"]:
+        if _entry[0] == "balance":
+            _items.append({
+                "name": f"{_entry[2]:g} TL Bakiye", "tier": "consumer", "type": "balance",
+                "icon": "💰", "value": float(_entry[2]), "weight": _entry[1],
+            })
+        elif _entry[0] == "premium":
+            _items.append({
+                "name": f"{_entry[2]:g} Gün Premium", "tier": "covert", "type": "premium",
+                "icon": "👑", "value": float(_entry[2]), "weight": _entry[1],
+            })
+        else:
+            _skin_key, _weight = _entry[0], _entry[1]
+            _s = SKINS[_skin_key]
+            _items.append({
+                "name": _s["name"], "tier": _s["tier"], "type": "skin",
+                "skin": _skin_key, "icon": _s["icon"], "value": _s["value"], "weight": _weight,
+            })
     _cd["items"] = _items
     CASES[_ck] = _cd
 
@@ -190,8 +203,10 @@ def _skin_seed(key: str) -> int:
 
 
 def market_price(skin_key: str, t: float | None = None) -> float:
+    skin = SKINS.get(skin_key)
+    if skin is None:
+        return 0.0
     t = time.time() if t is None else t
-    skin = SKINS[skin_key]
     seed = _skin_seed(skin_key)
     p1 = (seed % 100) / 100.0
     p2 = ((seed >> 8) % 100) / 100.0
@@ -214,6 +229,8 @@ def market_change_pct(skin_key: str, window: float = 3600.0) -> float:
     now = time.time()
     cur = market_price(skin_key, now)
     prev = market_price(skin_key, now - window)
+    if prev == 0:
+        return 0.0
     return round((cur - prev) / prev * 100.0, 2)
 
 
@@ -1686,8 +1703,14 @@ setInterval(poll, 1500);
                 tier = TIER_INFO[it["tier"]]
                 label = it["name"]
                 pct = it["weight"] / total_w * 100
-                live = market_price(it.get("skin", it["name"]))
-                return f'<div class="case-item" data-tier="{it["tier"]}" style="--tier:{tier["color"]}"><span class="case-item-icon">{it.get("icon", "🎁")}</span><span class="case-item-star">{tier["star"]}</span><span class="case-item-name">{esc(label)}</span><span class="case-item-pct">%{pct:.2f} · {live:.0f} TL</span></div>'
+                if it.get("type") == "balance":
+                    live_txt = f'💰 {it["value"]:g} TL anında'
+                elif it.get("type") == "premium":
+                    live_txt = f'👑 {it["value"]:g} gün premium'
+                else:
+                    live = market_price(it.get("skin", it["name"]))
+                    live_txt = f'{live:.0f} TL'
+                return f'<div class="case-item" data-tier="{it["tier"]}" style="--tier:{tier["color"]}"><span class="case-item-icon">{it.get("icon", "🎁")}</span><span class="case-item-star">{tier["star"]}</span><span class="case-item-name">{esc(label)}</span><span class="case-item-pct">%{pct:.2f} · {live_txt}</span></div>'
             item_rows = "".join(item_html(i) for i in case["items"])
             case_cards = "".join(
                 f'<a class="case-card{" active" if k == sel_key else ""}" href="/cases?c={k}" style="--case:{c["color"]}"><span class="case-icon">{c["icon"]}</span><h3>{esc(c["name"])}</h3><span class="case-tag">{c["tag"]}</span><span class="case-price">₺{c["price"]:.0f}</span></a>'
@@ -1761,7 +1784,10 @@ function winSound(rarity) {{
 function revealHtml(d) {{
   const tier = TIERS[d.item.tier] || {{name: "Ödül", color: "#fff"}};
   const icon = d.item.icon || (d.item.tier === "extraordinary" ? "👑" : "🎉");
-  const marketLine = (d.item.value != null) ? '<p class="muted">Pazar değeri: ' + d.item.value.toFixed(0) + ' TL baz</p>' : '';
+  let marketLine = '';
+  if (d.item.type === "balance") marketLine = '<p class="muted">💰 ' + d.item.value.toFixed(0) + ' TL bakiyene anında eklendi!</p>';
+  else if (d.item.type === "premium") marketLine = '<p class="muted">👑 ' + d.item.value.toFixed(0) + ' gün premium erişim eklendi!</p>';
+  else if (d.item.value != null) marketLine = '<p class="muted">Pazar değeri: ' + d.item.value.toFixed(0) + ' TL baz</p>';
   return '<div class="case-reveal-inner" style="--tier:' + tier.color + '"><span class="case-reveal-icon">' + icon + '</span><span class="case-reveal-rarity">' + tier.star + '</span><h2>' + d.item.name + '</h2><p style="color:' + tier.color + ';font-weight:700;">' + tier.name + '</p>' + marketLine + (d.balance != null ? '<p class="muted">Yeni bakiyen: ' + d.balance.toFixed(2) + ' TL</p>' : '') + '</div>';
 }}
 
@@ -3120,7 +3146,7 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                 self.send_json({"ok": False, "error": "Kasa bulunamadı."}, 404)
                 return
             with db() as connection:
-                urow = connection.execute("SELECT balance FROM users WHERE id=?", (current[1],)).fetchone()
+                urow = connection.execute("SELECT balance, premium_until FROM users WHERE id=?", (current[1],)).fetchone()
                 if not urow:
                     self.send_json({"ok": False, "error": "Kullanıcı bulunamadı."}, 404)
                     return
@@ -3137,18 +3163,31 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                         break
                     roll -= it["weight"]
                 new_bal = balance - case["price"]
-                connection.execute("UPDATE users SET balance=? WHERE id=?", (new_bal, current[1]))
-                inv_id = connection.insert_id(
-                    "INSERT INTO case_inventory(user_id, case_key, item_name, item_tier, item_value, skin_key, created_at) VALUES(?,?,?,?,?,?,?)",
-                    (current[1], case_key, chosen["name"], chosen["tier"], chosen["value"], chosen.get("skin", ""), int(time.time())),
-                )
+                reward_type = chosen.get("type", "skin")
+                inv_id = 0
+                premium_until = int(urow["premium_until"] or 0)
+                if reward_type == "balance":
+                    new_bal += chosen["value"]
+                    connection.execute("UPDATE users SET balance=? WHERE id=?", (new_bal, current[1]))
+                elif reward_type == "premium":
+                    days = int(chosen["value"])
+                    now = int(time.time())
+                    new_premium = max(now, premium_until) + days * 86400
+                    connection.execute("UPDATE users SET balance=?, premium_until=? WHERE id=?", (new_bal, new_premium, current[1]))
+                else:
+                    connection.execute("UPDATE users SET balance=? WHERE id=?", (new_bal, current[1]))
+                    inv_id = connection.insert_id(
+                        "INSERT INTO case_inventory(user_id, case_key, item_name, item_tier, item_value, skin_key, created_at) VALUES(?,?,?,?,?,?,?)",
+                        (current[1], case_key, chosen["name"], chosen["tier"], chosen["value"], chosen.get("skin", ""), int(time.time())),
+                    )
             tier = TIER_INFO[chosen["tier"]]
             log_event(f"[KASA] '{username}' {case['name']} açtı → {chosen['name']} ({tier['name']}).")
             self.send_json({
                 "ok": True,
-                "item": {"name": chosen["name"], "tier": chosen["tier"], "icon": chosen.get("icon", "🎁"), "skin": chosen.get("skin", ""), "value": chosen["value"]},
+                "item": {"name": chosen["name"], "tier": chosen["tier"], "icon": chosen.get("icon", "🎁"), "skin": chosen.get("skin", ""), "value": chosen["value"], "type": reward_type},
                 "balance": new_bal,
                 "inv_id": inv_id,
+                "premium_until": premium_until if reward_type == "premium" else None,
                 "case_name": case["name"],
             })
             return
