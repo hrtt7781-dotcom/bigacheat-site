@@ -168,8 +168,13 @@ class LoaderApp:
         self.login_btn.pack(fill="x", ipady=9)
 
         self.tab_frame = tk.Frame(container, bg="#070d15")
-        self.tab_btn_free = tk.Button(self.tab_frame, text="🆓 ÜCRETSİZ HİLE", command=lambda: self.start_download("free"), bg="#123456", fg="white", activebackground="#1a4a75", activeforeground="white", relief="flat", font=("Segoe UI", 10, "bold"), cursor="hand2", disabledforeground="#5b7085")
-        self.tab_btn_paid = tk.Button(self.tab_frame, text="💎 ÜCRETLİ HİLE", command=lambda: self.start_download("paid"), bg="#3d2f00", fg="#ffd700", activebackground="#5a4400", activeforeground="#ffd700", relief="flat", font=("Segoe UI", 10, "bold"), cursor="hand2", disabledforeground="#5b7085")
+        self.tab_btn_free = tk.Button(self.tab_frame, text="🆓 ÜCRETSİZ HİLE", command=lambda: self.select_tab("free"), bg="#123456", fg="white", activebackground="#1a4a75", activeforeground="white", relief="flat", font=("Segoe UI", 10, "bold"), cursor="hand2", disabledforeground="#5b7085")
+        self.tab_btn_paid = tk.Button(self.tab_frame, text="💎 ÜCRETLİ HİLE", command=lambda: self.select_tab("paid"), bg="#3d2f00", fg="#ffd700", activebackground="#5a4400", activeforeground="#ffd700", relief="flat", font=("Segoe UI", 10, "bold"), cursor="hand2", disabledforeground="#5b7085")
+        self.tab_btn_free.pack(side="left", expand=True, fill="x", padx=(0, 4), ipady=8)
+        self.tab_btn_paid.pack(side="left", expand=True, fill="x", padx=(4, 0), ipady=8)
+
+        self.start_btn = tk.Button(container, text="BAŞLAT", command=self.start_selected, bg="#ffd700", fg="#0a0f16", activebackground="#ffe44d", activeforeground="#0a0f16", relief="flat", font=("Segoe UI", 11, "bold"), cursor="hand2")
+        self.start_btn.pack_forget()
 
         self.status = tk.Label(container, text="Hazır", fg="#65d9ff", bg="#070d15", font=("Segoe UI", 10), wraplength=400, justify="left")
         self.status.pack(fill="x", pady=(16, 0))
@@ -187,6 +192,7 @@ class LoaderApp:
             self.login_btn.config(state="disabled", text="İşleniyor...")
             self.tab_btn_free.config(state="disabled")
             self.tab_btn_paid.config(state="disabled")
+            self.start_btn.config(state="disabled")
             self.progress.pack(fill="x", pady=(12, 0))
             self.progress.start(12)
         else:
@@ -199,8 +205,46 @@ class LoaderApp:
         if not getattr(self, "logged_in", False):
             return
         self.tab_frame.pack(fill="x", pady=(14, 0))
-        self.tab_btn_free.config(state="normal")
-        self.tab_btn_paid.config(state="normal" if self.premium else "disabled")
+        if not getattr(self, "selected", None):
+            self.selected = "paid" if getattr(self, "premium", False) else "free"
+        self.refresh_tabs()
+
+    def refresh_tabs(self):
+        selected = getattr(self, "selected", "free")
+        free_selected = selected == "free"
+        self.tab_btn_free.config(
+            state="normal",
+            bg="#1a4a75" if free_selected else "#123456",
+            fg="white",
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground="#65d9ff" if free_selected else "#123456",
+        )
+        paid_enabled = getattr(self, "premium", False)
+        self.tab_btn_paid.config(
+            state="normal" if paid_enabled else "disabled",
+            bg="#5a4400" if (selected == "paid") else "#3d2f00",
+            fg="#ffd700",
+            relief="flat",
+            highlightthickness=1,
+            highlightbackground="#ffd700" if selected == "paid" else "#3d2f00",
+        )
+        self.start_btn.config(state="normal" if (paid_enabled or selected == "free") else "disabled", text="BAŞLAT")
+        self.start_btn.pack(fill="x", pady=(12, 0))
+
+    def select_tab(self, tab):
+        if tab == "paid" and not getattr(self, "premium", False):
+            messagebox.showwarning(APP_NAME, "Ücretli Hile için premium üyelik gerekli. Bakiye yükleyip Ücretli Hileler sayfasından erişim satın al.")
+            return
+        self.selected = tab
+        self.refresh_tabs()
+
+    def start_selected(self):
+        tab = getattr(self, "selected", None)
+        if not tab:
+            messagebox.showwarning(APP_NAME, "Önce bir sekme seç.")
+            return
+        self.start_download(tab)
 
     def login(self):
         username = self.username.get().strip()
