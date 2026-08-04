@@ -107,143 +107,143 @@ TIER_ORDER = ["consumer", "industrial", "restricted", "classified", "covert", "e
 CASES = {
     "kumbara": {
         "name": "Kumbara Kasa",
-        "price": 5.0,
+        "price": 40.0,
         "icon": "🐷",
         "color": "#b0c3d9",
         "tag": "BAŞLANGIÇ",
         "items": [
-            {"name": "0,50 TL Bakiye", "tier": "consumer", "type": "balance", "value": 0.5, "weight": 60},
-            {"name": "1,50 TL Bakiye", "tier": "industrial", "type": "balance", "value": 1.5, "weight": 25},
-            {"name": "3 TL Bakiye", "tier": "restricted", "type": "balance", "value": 3.0, "weight": 10},
-            {"name": "8 TL Bakiye", "tier": "classified", "type": "balance", "value": 8.0, "weight": 4},
-            {"name": "1 Gün Premium", "tier": "covert", "type": "premium", "value": 1, "weight": 1},
+            {"name": "8 TL Bakiye", "tier": "consumer", "type": "balance", "value": 8.0, "weight": 55},
+            {"name": "18 TL Bakiye", "tier": "industrial", "type": "balance", "value": 18.0, "weight": 25},
+            {"name": "35 TL Bakiye", "tier": "restricted", "type": "balance", "value": 35.0, "weight": 13},
+            {"name": "60 TL Bakiye", "tier": "classified", "type": "balance", "value": 60.0, "weight": 5},
+            {"name": "5 Gün Premium", "tier": "covert", "type": "premium", "value": 5, "weight": 2},
         ],
     },
     "mavzer": {
         "name": "Mavzer Kasa",
-        "price": 10.0,
+        "price": 60.0,
         "icon": "🔫",
         "color": "#5e98d9",
         "tag": "GÜNCEL",
         "items": [
-            {"name": "1 TL Bakiye", "tier": "consumer", "type": "balance", "value": 1.0, "weight": 60},
-            {"name": "3 TL Bakiye", "tier": "industrial", "type": "balance", "value": 3.0, "weight": 25},
-            {"name": "7 TL Bakiye", "tier": "restricted", "type": "balance", "value": 7.0, "weight": 10},
-            {"name": "15 TL Bakiye", "tier": "classified", "type": "balance", "value": 15.0, "weight": 4},
-            {"name": "2 Gün Premium", "tier": "covert", "type": "premium", "value": 2, "weight": 1},
+            {"name": "12 TL Bakiye", "tier": "consumer", "type": "balance", "value": 12.0, "weight": 55},
+            {"name": "28 TL Bakiye", "tier": "industrial", "type": "balance", "value": 28.0, "weight": 25},
+            {"name": "55 TL Bakiye", "tier": "restricted", "type": "balance", "value": 55.0, "weight": 13},
+            {"name": "100 TL Bakiye", "tier": "classified", "type": "balance", "value": 100.0, "weight": 5},
+            {"name": "7 Gün Premium", "tier": "covert", "type": "premium", "value": 7, "weight": 2},
         ],
     },
     "cepane": {
         "name": "Cepane Kasa",
-        "price": 20.0,
+        "price": 80.0,
         "icon": "📦",
         "color": "#8847ff",
         "tag": "POPÜLER",
         "items": [
-            {"name": "2 TL Bakiye", "tier": "consumer", "type": "balance", "value": 2.0, "weight": 55},
-            {"name": "6 TL Bakiye", "tier": "industrial", "type": "balance", "value": 6.0, "weight": 25},
-            {"name": "14 TL Bakiye", "tier": "restricted", "type": "balance", "value": 14.0, "weight": 12},
-            {"name": "28 TL Bakiye", "tier": "classified", "type": "balance", "value": 28.0, "weight": 6},
-            {"name": "3 Gün Premium", "tier": "covert", "type": "premium", "value": 3, "weight": 2},
+            {"name": "16 TL Bakiye", "tier": "consumer", "type": "balance", "value": 16.0, "weight": 52},
+            {"name": "36 TL Bakiye", "tier": "industrial", "type": "balance", "value": 36.0, "weight": 25},
+            {"name": "70 TL Bakiye", "tier": "restricted", "type": "balance", "value": 70.0, "weight": 14},
+            {"name": "130 TL Bakiye", "tier": "classified", "type": "balance", "value": 130.0, "weight": 7},
+            {"name": "9 Gün Premium", "tier": "covert", "type": "premium", "value": 9, "weight": 2},
         ],
     },
     "savascı": {
         "name": "Savaşçı Kasa",
-        "price": 35.0,
+        "price": 110.0,
         "icon": "🪖",
         "color": "#8847ff",
         "tag": "POPÜLER",
         "items": [
-            {"name": "4 TL Bakiye", "tier": "consumer", "type": "balance", "value": 4.0, "weight": 55},
-            {"name": "10 TL Bakiye", "tier": "industrial", "type": "balance", "value": 10.0, "weight": 25},
-            {"name": "22 TL Bakiye", "tier": "restricted", "type": "balance", "value": 22.0, "weight": 12},
-            {"name": "45 TL Bakiye", "tier": "classified", "type": "balance", "value": 45.0, "weight": 6},
-            {"name": "5 Gün Premium", "tier": "covert", "type": "premium", "value": 5, "weight": 2},
+            {"name": "22 TL Bakiye", "tier": "consumer", "type": "balance", "value": 22.0, "weight": 52},
+            {"name": "50 TL Bakiye", "tier": "industrial", "type": "balance", "value": 50.0, "weight": 25},
+            {"name": "100 TL Bakiye", "tier": "restricted", "type": "balance", "value": 100.0, "weight": 14},
+            {"name": "190 TL Bakiye", "tier": "classified", "type": "balance", "value": 190.0, "weight": 7},
+            {"name": "12 Gün Premium", "tier": "covert", "type": "premium", "value": 12, "weight": 2},
         ],
     },
     "yildiz": {
         "name": "Yıldız Kasa",
-        "price": 50.0,
+        "price": 140.0,
         "icon": "⭐",
         "color": "#d32ce6",
         "tag": "GÜNCEL",
         "items": [
-            {"name": "5 TL Bakiye", "tier": "consumer", "type": "balance", "value": 5.0, "weight": 55},
-            {"name": "15 TL Bakiye", "tier": "industrial", "type": "balance", "value": 15.0, "weight": 25},
-            {"name": "35 TL Bakiye", "tier": "restricted", "type": "balance", "value": 35.0, "weight": 12},
-            {"name": "70 TL Bakiye", "tier": "classified", "type": "balance", "value": 70.0, "weight": 6},
-            {"name": "7 Gün Premium", "tier": "covert", "type": "premium", "value": 7, "weight": 2},
+            {"name": "28 TL Bakiye", "tier": "consumer", "type": "balance", "value": 28.0, "weight": 52},
+            {"name": "65 TL Bakiye", "tier": "industrial", "type": "balance", "value": 65.0, "weight": 25},
+            {"name": "130 TL Bakiye", "tier": "restricted", "type": "balance", "value": 130.0, "weight": 14},
+            {"name": "250 TL Bakiye", "tier": "classified", "type": "balance", "value": 250.0, "weight": 7},
+            {"name": "15 Gün Premium", "tier": "covert", "type": "premium", "value": 15, "weight": 2},
         ],
     },
     "spektrum": {
         "name": "Spektrum Kasa",
-        "price": 75.0,
+        "price": 180.0,
         "icon": "🌈",
         "color": "#d32ce6",
         "tag": "GÜNCEL",
         "items": [
-            {"name": "8 TL Bakiye", "tier": "consumer", "type": "balance", "value": 8.0, "weight": 50},
-            {"name": "22 TL Bakiye", "tier": "industrial", "type": "balance", "value": 22.0, "weight": 25},
-            {"name": "50 TL Bakiye", "tier": "restricted", "type": "balance", "value": 50.0, "weight": 14},
-            {"name": "100 TL Bakiye", "tier": "classified", "type": "balance", "value": 100.0, "weight": 8},
-            {"name": "10 Gün Premium", "tier": "covert", "type": "premium", "value": 10, "weight": 3},
+            {"name": "36 TL Bakiye", "tier": "consumer", "type": "balance", "value": 36.0, "weight": 50},
+            {"name": "85 TL Bakiye", "tier": "industrial", "type": "balance", "value": 85.0, "weight": 25},
+            {"name": "170 TL Bakiye", "tier": "restricted", "type": "balance", "value": 170.0, "weight": 15},
+            {"name": "330 TL Bakiye", "tier": "classified", "type": "balance", "value": 330.0, "weight": 8},
+            {"name": "18 Gün Premium", "tier": "covert", "type": "premium", "value": 18, "weight": 2},
         ],
     },
     "buzcagi": {
         "name": "Buz Çağı Kasa",
-        "price": 100.0,
+        "price": 220.0,
         "icon": "❄️",
         "color": "#5e98d9",
         "tag": "ÖZEL",
         "items": [
-            {"name": "12 TL Bakiye", "tier": "consumer", "type": "balance", "value": 12.0, "weight": 50},
-            {"name": "30 TL Bakiye", "tier": "industrial", "type": "balance", "value": 30.0, "weight": 25},
-            {"name": "65 TL Bakiye", "tier": "restricted", "type": "balance", "value": 65.0, "weight": 14},
-            {"name": "130 TL Bakiye", "tier": "classified", "type": "balance", "value": 130.0, "weight": 8},
-            {"name": "14 Gün Premium", "tier": "covert", "type": "premium", "value": 14, "weight": 3},
+            {"name": "45 TL Bakiye", "tier": "consumer", "type": "balance", "value": 45.0, "weight": 50},
+            {"name": "105 TL Bakiye", "tier": "industrial", "type": "balance", "value": 105.0, "weight": 25},
+            {"name": "210 TL Bakiye", "tier": "restricted", "type": "balance", "value": 210.0, "weight": 15},
+            {"name": "420 TL Bakiye", "tier": "classified", "type": "balance", "value": 420.0, "weight": 8},
+            {"name": "22 Gün Premium", "tier": "covert", "type": "premium", "value": 22, "weight": 2},
         ],
     },
     "yanardag": {
         "name": "Yanardağ Kasa",
-        "price": 150.0,
+        "price": 280.0,
         "icon": "🌋",
         "color": "#eb4b4b",
         "tag": "ÖZEL",
         "items": [
-            {"name": "18 TL Bakiye", "tier": "consumer", "type": "balance", "value": 18.0, "weight": 50},
-            {"name": "45 TL Bakiye", "tier": "industrial", "type": "balance", "value": 45.0, "weight": 25},
-            {"name": "95 TL Bakiye", "tier": "restricted", "type": "balance", "value": 95.0, "weight": 14},
-            {"name": "200 TL Bakiye", "tier": "classified", "type": "balance", "value": 200.0, "weight": 8},
-            {"name": "21 Gün Premium", "tier": "covert", "type": "premium", "value": 21, "weight": 3},
+            {"name": "55 TL Bakiye", "tier": "consumer", "type": "balance", "value": 55.0, "weight": 50},
+            {"name": "130 TL Bakiye", "tier": "industrial", "type": "balance", "value": 130.0, "weight": 25},
+            {"name": "260 TL Bakiye", "tier": "restricted", "type": "balance", "value": 260.0, "weight": 15},
+            {"name": "520 TL Bakiye", "tier": "classified", "type": "balance", "value": 520.0, "weight": 8},
+            {"name": "28 Gün Premium", "tier": "covert", "type": "premium", "value": 28, "weight": 2},
         ],
     },
     "efsane": {
         "name": "Efsane Kasa",
-        "price": 200.0,
+        "price": 360.0,
         "icon": "👑",
         "color": "#eb4b4b",
         "tag": "EKSKLUSİF",
         "items": [
-            {"name": "25 TL Bakiye", "tier": "consumer", "type": "balance", "value": 25.0, "weight": 48},
-            {"name": "60 TL Bakiye", "tier": "industrial", "type": "balance", "value": 60.0, "weight": 25},
-            {"name": "130 TL Bakiye", "tier": "restricted", "type": "balance", "value": 130.0, "weight": 15},
-            {"name": "280 TL Bakiye", "tier": "classified", "type": "balance", "value": 280.0, "weight": 8},
-            {"name": "30 Gün Premium", "tier": "covert", "type": "premium", "value": 30, "weight": 3},
+            {"name": "70 TL Bakiye", "tier": "consumer", "type": "balance", "value": 70.0, "weight": 46},
+            {"name": "170 TL Bakiye", "tier": "industrial", "type": "balance", "value": 170.0, "weight": 25},
+            {"name": "340 TL Bakiye", "tier": "restricted", "type": "balance", "value": 340.0, "weight": 16},
+            {"name": "680 TL Bakiye", "tier": "classified", "type": "balance", "value": 680.0, "weight": 9},
+            {"name": "35 Gün Premium", "tier": "covert", "type": "premium", "value": 35, "weight": 3},
             {"name": "90 Gün Premium", "tier": "extraordinary", "type": "premium", "value": 90, "weight": 1},
         ],
     },
     "imparator": {
         "name": "İmparator Kasa",
-        "price": 350.0,
+        "price": 500.0,
         "icon": "💎",
         "color": "#ffd700",
         "tag": "EKSKLUSİF",
         "items": [
-            {"name": "45 TL Bakiye", "tier": "consumer", "type": "balance", "value": 45.0, "weight": 44},
-            {"name": "110 TL Bakiye", "tier": "industrial", "type": "balance", "value": 110.0, "weight": 25},
-            {"name": "240 TL Bakiye", "tier": "restricted", "type": "balance", "value": 240.0, "weight": 16},
-            {"name": "500 TL Bakiye", "tier": "classified", "type": "balance", "value": 500.0, "weight": 9},
-            {"name": "60 Gün Premium", "tier": "covert", "type": "premium", "value": 60, "weight": 4},
+            {"name": "95 TL Bakiye", "tier": "consumer", "type": "balance", "value": 95.0, "weight": 42},
+            {"name": "230 TL Bakiye", "tier": "industrial", "type": "balance", "value": 230.0, "weight": 25},
+            {"name": "460 TL Bakiye", "tier": "restricted", "type": "balance", "value": 460.0, "weight": 17},
+            {"name": "920 TL Bakiye", "tier": "classified", "type": "balance", "value": 920.0, "weight": 10},
+            {"name": "45 Gün Premium", "tier": "covert", "type": "premium", "value": 45, "weight": 4},
             {"name": "270 Gün Premium (9 AY)", "tier": "extraordinary", "type": "premium", "value": 270, "weight": 2},
         ],
     },
@@ -1679,7 +1679,10 @@ setInterval(poll, 1500);
   <div class="case-odds"><div class="eyebrow">ÇIKMA ORANLARI</div><div class="case-items">{item_rows}</div></div>
 </section>
 <div class="case-overlay" id="case-overlay">
-  <div class="case-unbox" id="case-unbox"></div>
+  <div class="case-unbox-track">
+    <div class="case-unbox" id="case-unbox"></div>
+    <div class="case-marker" id="case-marker"></div>
+  </div>
   <div class="case-reveal" id="case-reveal"></div>
   <button class="button primary" id="case-close" style="display:none;">Tamam</button>
 </div>
@@ -1738,15 +1741,35 @@ openBtn.addEventListener("click", () => {{
     d.textContent = item.tier === "extraordinary" ? "💎" : "🎁";
     unbox.appendChild(d);
   }}
+  function highlightUnderMarker() {{
+    const cells = unbox.querySelectorAll(".unbox-cell");
+    const markerX = unbox.clientWidth / 2;
+    let best = null, bestDist = Infinity;
+    cells.forEach(c => {{
+      const cx = c.offsetLeft + c.offsetWidth / 2 - unbox.scrollLeft;
+      const dist = Math.abs(cx - markerX);
+      if (dist < bestDist) {{ bestDist = dist; best = c; }}
+    }});
+    cells.forEach(c => c.classList.remove("under-marker"));
+    if (best) best.classList.add("under-marker");
+  }}
+  highlightUnderMarker();
   const rollTicks = 14 + Math.floor(Math.random() * 8);
   let t = 0;
   const interval = setInterval(() => {{
     unbox.scrollLeft += 26;
+    highlightUnderMarker();
     tickSound();
     t++;
     if (t >= rollTicks) {{
       clearInterval(interval);
-      openCaseResult(ck);
+      const winner = unbox.querySelector(".under-marker");
+      if (winner) {{
+        winner.classList.add("win");
+        setTimeout(() => openCaseResult(ck), 420);
+      }} else {{
+        openCaseResult(ck);
+      }}
     }}
   }}, 85);
 }});
