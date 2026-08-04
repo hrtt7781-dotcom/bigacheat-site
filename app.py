@@ -59,6 +59,7 @@ def _resolve_data_dir() -> Path:
 DATA_DIR = _resolve_data_dir()
 DB_PATH = DATA_DIR / "data.sqlite3"
 DOWNLOAD_PATH = ROOT / "downloads" / "Biga Cheat-Cs2-Modified.exe"
+LOADER_PATH = ROOT / "downloads" / "BigaCheat-Loader.exe"
 PAID_CHEATS_DIR = ROOT / "paid_cheats"
 PROJECTS_PATH = DATA_DIR / "projects"
 # Ücretli Hileler'e bakiye ile süreli erişim planları (gün -> TL)
@@ -892,6 +893,24 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/loader/version":
             self.send_json({"version": LOADER_VERSION, "download_url": "/downloads/BigaCheat-Loader.exe"})
             return
+        elif path == "/downloads/BigaCheat-Loader.exe":
+            if not LOADER_PATH.is_file():
+                self.send_html(page("Dosya yok", '<section class="auth-card"><h1>Loader henüz yüklenmedi</h1></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(LOADER_PATH.stat().st_size))
+            self.send_header("Content-Disposition", 'attachment; filename="BigaCheat-Loader.exe"')
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "same-origin")
+            if COOKIE_SECURE:
+                self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+            self.end_headers()
+            with LOADER_PATH.open("rb") as file:
+                while chunk := file.read(1024 * 1024):
+                    self.wfile.write(chunk)
+            return
         elif path == "/robots.txt":
             robots = "User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /login\nDisallow: /register\n"
             data = robots.encode("utf-8")
@@ -1069,6 +1088,26 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
             self.end_headers()
             with DOWNLOAD_PATH.open("rb") as file:
+                while chunk := file.read(1024 * 1024):
+                    self.wfile.write(chunk)
+        elif path == "/admin/downloads/loader":
+            if not is_admin_cookie(self.admin_cookie()):
+                self.redirect("/admin/login")
+                return
+            if not LOADER_PATH.is_file():
+                self.send_html(page("Dosya yok", '<section class="auth-card"><h1>Loader hazır değil</h1></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(LOADER_PATH.stat().st_size))
+            self.send_header("Content-Disposition", 'attachment; filename="BigaCheat-Loader.exe"')
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "same-origin")
+            if COOKIE_SECURE:
+                self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+            self.end_headers()
+            with LOADER_PATH.open("rb") as file:
                 while chunk := file.read(1024 * 1024):
                     self.wfile.write(chunk)
         elif path == "/download":
@@ -1501,6 +1540,7 @@ class Handler(BaseHTTPRequestHandler):
             )
 
             file_status = f"{DOWNLOAD_PATH.stat().st_size / 1024 / 1024:.2f} MB" if DOWNLOAD_PATH.is_file() else "Dosya yok"
+            loader_status = f"{LOADER_PATH.stat().st_size / 1024 / 1024:.2f} MB" if LOADER_PATH.is_file() else "Dosya yok"
             paid_files = [f.name for f in PAID_CHEATS_DIR.iterdir() if f.is_file()] if PAID_CHEATS_DIR.is_dir() else []
             paid_status = ", ".join(paid_files) if paid_files else "Dosya yok"
             
@@ -1601,6 +1641,7 @@ class Handler(BaseHTTPRequestHandler):
             </thead>
             <tbody>
                 <tr><td>Bedava sürüm</td><td><code>Biga Cheat-Cs2-Modified.exe</code></td><td><span class="status-tag {'onaylandi' if DOWNLOAD_PATH.is_file() else 'reddedildi'}">{file_status}</span></td><td>{'<a class="button small primary" href="/admin/downloads/free">İndir</a>' if DOWNLOAD_PATH.is_file() else '-'}</td></tr>
+                <tr><td>Loader</td><td><code>BigaCheat-Loader.exe</code></td><td><span class="status-tag {'onaylandi' if LOADER_PATH.is_file() else 'reddedildi'}">{loader_status}</span></td><td>{'<a class="button small primary" href="/admin/downloads/loader">İndir</a>' if LOADER_PATH.is_file() else '-'}</td></tr>
                 <tr><td>Ücretli Hileler</td><td><code>{esc(paid_status)}</code></td><td><span class="status-tag {'onaylandi' if paid_files else 'reddedildi'}">{len(paid_files)} dosya</span></td><td>{" ".join(f'<a class="button small ghost" href="/admin/downloads/paid/{quote(f)}">İndir: {esc(f)}</a>' for f in paid_files) or '-'}</td></tr>
             </tbody>
         </table>

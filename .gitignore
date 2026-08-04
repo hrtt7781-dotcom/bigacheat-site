@@ -5,3 +5,6 @@ __pycache__/
 BigaCheat-Bilgiler.txt
 BigaCheat-AdminPanel.txt
 projects/
+loader/build/
+loader/dist/
+loader/*.spec
