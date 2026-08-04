@@ -5,15 +5,23 @@ Kullanıcı site hesabıyla (kullanıcı adı + şifre) giriş yapar,
 premium doğrulaması yapılır ve kişiye özel filigranlı premium paket
 indirilip otomatik olarak açılır.
 
+Özellikler:
+  - Kalan premium gün sayısını gösterir
+  - Otomatik güncelleme kontrolü (site /api/loader/version ile)
+  - İndirilen geçici dosyaları temizler (injector kapandıktan sonra)
+
 Derlemek için:  build.bat  (PyInstaller gerekir)
 """
 
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import tkinter as tk
 import urllib.error
 import urllib.request
@@ -23,6 +31,7 @@ from tkinter import messagebox, ttk
 BASE_URL = "https://biga-cheat-site.onrender.com"
 APP_NAME = "Biga Cheat Loader"
 EXE_NAME = "CS2_Injector.exe"
+VERSION = "1.0.0"
 
 
 def api_post(path, payload):
@@ -37,6 +46,27 @@ def api_post(path, payload):
             return exc.code, b""
 
 
+def api_get(path, timeout=15):
+    req = urllib.request.Request(BASE_URL + path, method="GET")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.status, resp.read()
+
+
+def check_for_update():
+    """Site sürümünü alır. Güncelleme varsa (version, url) döner, yoksa None."""
+    try:
+        status, body = api_get("/api/loader/version")
+        if status != 200:
+            return None
+        data = json.loads(body.decode("utf-8", "replace"))
+        server_version = str(data.get("version", ""))
+        if not server_version or server_version == VERSION:
+            return None
+        return server_version, str(data.get("download_url", ""))
+    except Exception:
+        return None
+
+
 def request_login(username, password):
     try:
         status, body = api_post("/api/loader/login", {"username": username, "password": password})
@@ -49,7 +79,7 @@ def request_login(username, password):
     if status != 200 or not data.get("ok"):
         err = data.get("error", "bilinmeyen hata")
         raise RuntimeError(f"Giriş başarısız ({err}). Kullanıcı adı/şifre hatalı veya premium erişimin yok.")
-    return data.get("token"), data.get("premium_until", 0)
+    return data.get("token"), int(data.get("premium_until", 0) or 0)
 
 
 def request_download(token, dest_path):
@@ -66,11 +96,30 @@ def request_download(token, dest_path):
     return dest_path
 
 
+def cleanup_after_exit(extract_dir, temp_dir):
+    """Injector kapanana kadar bekler, sonra geçici klasörleri siler."""
+
+    def run():
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            try:
+                shutil.rmtree(temp_dir)
+                return
+            except (OSError, PermissionError):
+                time.sleep(1)
+        try:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+    threading.Thread(target=run, daemon=True).start()
+
+
 class LoaderApp:
     def __init__(self, root):
         self.root = root
         root.title(APP_NAME)
-        root.geometry("460x520")
+        root.geometry("460x560")
         root.resizable(False, False)
         root.configure(bg="#070d15")
 
@@ -81,12 +130,15 @@ class LoaderApp:
             pass
 
         container = tk.Frame(root, bg="#070d15")
-        container.pack(fill="both", expand=True, padx=28, pady=24)
+        container.pack(fill="both", expand=True, padx=28, pady=20)
 
         title = tk.Label(container, text="BIGA CHEAT", fg="#ffd700", bg="#070d15", font=("Segoe UI", 22, "bold"))
-        title.pack(pady=(0, 4))
+        title.pack(pady=(0, 2))
         sub = tk.Label(container, text="Premium Loader", fg="#8fa3b8", bg="#070d15", font=("Segoe UI", 11))
-        sub.pack(pady=(0, 24))
+        sub.pack(pady=(0, 18))
+
+        self.info = tk.Label(container, text=f"v{VERSION}", fg="#5b7085", bg="#070d15", font=("Segoe UI", 9))
+        self.info.pack(pady=(0, 14))
 
         tk.Label(container, text="Kullanıcı Adı", fg="#cfd8e3", bg="#070d15", font=("Segoe UI", 10)).pack(anchor="w")
         self.username = tk.Entry(container, bg="#0d1724", fg="white", insertbackground="white", relief="flat", font=("Segoe UI", 12))
@@ -94,7 +146,7 @@ class LoaderApp:
 
         tk.Label(container, text="Şifre", fg="#cfd8e3", bg="#070d15", font=("Segoe UI", 10)).pack(anchor="w")
         self.password = tk.Entry(container, bg="#0d1724", fg="white", insertbackground="white", relief="flat", show="*", font=("Segoe UI", 12))
-        self.password.pack(fill="x", pady=(4, 20), ipady=6)
+        self.password.pack(fill="x", pady=(4, 16), ipady=6)
         self.password.bind("<Return>", lambda _e: self.login())
 
         self.login_btn = tk.Button(container, text="GİRİŞ YAP VE BAŞLAT", command=self.login, bg="#ffd700", fg="#0a0f16", activebackground="#ffe44d", activeforeground="#0a0f16", relief="flat", font=("Segoe UI", 11, "bold"), cursor="hand2")
@@ -132,9 +184,24 @@ class LoaderApp:
         self.root.after(50, self.work, username, password)
 
     def work(self, username, password):
+        token = None
+        temp_dir = None
+        updating = False
         try:
-            token, _until = request_login(username, password)
-            self.set_status("Premium doğrulandı, paket indiriliyor...")
+            update = check_for_update()
+            if update:
+                updating = True
+                self.set_status(f"Güncelleme bulundu (v{update[0]}), indiriliyor...")
+                self.apply_update(update[1])
+                return
+
+            token, until = request_login(username, password)
+            days = max(0, (until - int(time.time())) // 86400) if until else 0
+            if until:
+                self.set_status(f"Premium doğrulandı — kalan süre: {days} gün. Paket indiriliyor...")
+            else:
+                self.set_status("Premium doğrulandı, paket indiriliyor...")
+
             temp_dir = tempfile.mkdtemp(prefix="bigacheat_")
             zip_path = os.path.join(temp_dir, "premium.zip")
             request_download(token, zip_path)
@@ -155,8 +222,14 @@ class LoaderApp:
                     subprocess.Popen([exe], cwd=extract_dir)
             else:
                 subprocess.Popen([exe], cwd=extract_dir)
+            cleanup_after_exit(extract_dir, temp_dir)
+            temp_dir = None  # temizlik thread'e devredildi
+            msg = f"Giriş başarılı.\nCS2_Injector.exe başlatıldı."
+            if until:
+                msg += f"\nKalan premium süren: {days} gün."
+            msg += "\n\nDosya paylaşımı yasaktır — arşiv senin adına kayıtlı."
             self.set_status("Tamamlandı! Injector açıldı.", "#7cf29c")
-            messagebox.showinfo(APP_NAME, "Giriş başarılı.\nCS2_Injector.exe başlatıldı.\n\nDosya paylaşımı yasaktır — arşiv senin adına kayıtlı.")
+            messagebox.showinfo(APP_NAME, msg)
         except RuntimeError as exc:
             self.set_status(str(exc), "#ff6b6b")
             messagebox.showerror(APP_NAME, str(exc))
@@ -164,7 +237,54 @@ class LoaderApp:
             self.set_status(f"Beklenmeyen hata: {exc}", "#ff6b6b")
             messagebox.showerror(APP_NAME, f"Beklenmeyen hata: {exc}")
         finally:
+            if temp_dir:
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception:
+                    pass
+            if not updating:
+                self.set_loading(False)
+
+    def apply_update(self, url):
+        me = sys.executable if getattr(sys, "frozen", False) else None
+        if not me or not os.path.isfile(me):
+            self.set_status("Çalışan exe bulunamadı, güncelleme yapılamadı.", "#ff6b6b")
             self.set_loading(False)
+            return
+        new_exe = os.path.join(os.path.dirname(me), f"_new_{os.path.basename(me)}")
+        try:
+            req = urllib.request.Request(BASE_URL + url, method="GET")
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                with open(new_exe, "wb") as fh:
+                    while True:
+                        chunk = resp.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        fh.write(chunk)
+        except Exception as exc:
+            self.set_status(f"Güncelleme indirilemedi: {exc}", "#ff6b6b")
+            self.set_loading(False)
+            return
+        updater = os.path.join(os.path.dirname(me), "_update.bat")
+        script = (
+            "@echo off\r\n"
+            ":loop\r\n"
+            f'taskkill /F /IM "{os.path.basename(me)}" >nul 2>&1\r\n'
+            "timeout /t 1 /nobreak >nul\r\n"
+            f'copy /Y "{new_exe}" "{me}" >nul\r\n'
+            f'if not exist "{me}" goto loop\r\n'
+            f'start "" "{me}"\r\n'
+            f'del "{new_exe}"\r\n'
+            f'del "%~f0"\r\n'
+        )
+        with open(updater, "w") as fh:
+            fh.write(script)
+        try:
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            subprocess.Popen(["cmd", "/c", updater], creationflags=creationflags)
+        except Exception:
+            pass
+        self.root.destroy()
 
 
 def main():
@@ -173,7 +293,7 @@ def main():
         LoaderApp(root)
         root.mainloop()
     else:
-        print(f"{APP_NAME} self-test OK (Python {sys.version.split()[0]})")
+        print(f"{APP_NAME} v{VERSION} self-test OK (Python {sys.version.split()[0]})")
 
 
 if __name__ == "__main__":

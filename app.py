@@ -74,6 +74,7 @@ ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 ADMIN_TTL = 60 * 60 * 12
 LOADER_TTL = 60 * 5  # loader token ömrü: 5 dakika
+LOADER_VERSION = "1.0.0"  # loader güncelleme kontrolü için sürüm
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,24}$")
 FREE_SPIN_COOLDOWN = 60 * 60 * 4  # 4 saat
 
@@ -888,6 +889,9 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"ok")
             return
+        elif path == "/api/loader/version":
+            self.send_json({"version": LOADER_VERSION, "download_url": "/downloads/BigaCheat-Loader.exe"})
+            return
         elif path == "/robots.txt":
             robots = "User-agent: *\nAllow: /\nDisallow: /admin/\nDisallow: /login\nDisallow: /register\n"
             data = robots.encode("utf-8")
@@ -1024,6 +1028,49 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
             self.end_headers()
             self.wfile.write(zip_data)
+        elif path.startswith("/admin/downloads/paid/"):
+            if not is_admin_cookie(self.admin_cookie()):
+                self.redirect("/admin/login")
+                return
+            fname = unquote(path.rsplit("/", 1)[1])
+            safe = Path(fname).name
+            file_path = PAID_CHEATS_DIR / safe
+            if not file_path.is_file() or PAID_CHEATS_DIR.resolve() not in file_path.resolve().parents:
+                self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>Dosya bulunamadı</h1></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(file_path.stat().st_size))
+            self.send_header("Content-Disposition", f'attachment; filename="{safe}"')
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "same-origin")
+            if COOKIE_SECURE:
+                self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+            self.end_headers()
+            with file_path.open("rb") as file:
+                while chunk := file.read(1024 * 1024):
+                    self.wfile.write(chunk)
+        elif path == "/admin/downloads/free":
+            if not is_admin_cookie(self.admin_cookie()):
+                self.redirect("/admin/login")
+                return
+            if not DOWNLOAD_PATH.is_file():
+                self.send_html(page("Dosya yok", '<section class="auth-card"><h1>Dosya hazır değil</h1></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(DOWNLOAD_PATH.stat().st_size))
+            self.send_header("Content-Disposition", 'attachment; filename="Biga Cheat-Cs2-Modified.exe"')
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "same-origin")
+            if COOKIE_SECURE:
+                self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+            self.end_headers()
+            with DOWNLOAD_PATH.open("rb") as file:
+                while chunk := file.read(1024 * 1024):
+                    self.wfile.write(chunk)
         elif path == "/download":
             if not user:
                 self.redirect("/login")
@@ -1542,18 +1589,19 @@ class Handler(BaseHTTPRequestHandler):
 <section class="admin-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px; margin-top: 30px; align-items: start;">
     <section class="table-card">
         <h2>İndirme Alanı Durumu</h2>
-        <p class="muted" style="margin-bottom: 12px;">Bedava sürüm (<code>downloads/</code>) ve ücretli sürümler (<code>paid_cheats/</code>) için yüklenmiş dosyalar.</p>
+        <p class="muted" style="margin-bottom: 12px;">Bedava sürüm (<code>downloads/</code>) ve ücretli sürümler (<code>paid_cheats/</code>) için yüklenmiş dosyalar. Yönetici olarak her dosyayı tek tek indirebilirsin.</p>
         <table>
             <thead>
                 <tr>
                     <th>Bölüm</th>
                     <th>Dosya(lar)</th>
                     <th>Durum</th>
+                    <th>İndir</th>
                 </tr>
             </thead>
             <tbody>
-                <tr><td>Bedava sürüm</td><td><code>Biga Cheat-Cs2-Modified.exe</code></td><td><span class="status-tag {'onaylandi' if DOWNLOAD_PATH.is_file() else 'reddedildi'}">{file_status}</span></td></tr>
-                <tr><td>Ücretli Hileler</td><td><code>{esc(paid_status)}</code></td><td><span class="status-tag {'onaylandi' if paid_files else 'reddedildi'}">{len(paid_files)} dosya</span></td></tr>
+                <tr><td>Bedava sürüm</td><td><code>Biga Cheat-Cs2-Modified.exe</code></td><td><span class="status-tag {'onaylandi' if DOWNLOAD_PATH.is_file() else 'reddedildi'}">{file_status}</span></td><td>{'<a class="button small primary" href="/admin/downloads/free">İndir</a>' if DOWNLOAD_PATH.is_file() else '-'}</td></tr>
+                <tr><td>Ücretli Hileler</td><td><code>{esc(paid_status)}</code></td><td><span class="status-tag {'onaylandi' if paid_files else 'reddedildi'}">{len(paid_files)} dosya</span></td><td>{" ".join(f'<a class="button small ghost" href="/admin/downloads/paid/{quote(f)}">İndir: {esc(f)}</a>' for f in paid_files) or '-'}</td></tr>
             </tbody>
         </table>
         <p class="muted" style="margin-top: 10px; font-size: 12px;">Dosyalar projenin <code>downloads/</code> ve <code>paid_cheats/</code> klasörlerine eklenir ve GitHub üzerinden canlıya yüklenir.</p>
