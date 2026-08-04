@@ -605,10 +605,11 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="{esc(title)} · Biga Cheat">
 <meta name="twitter:description" content="Biga Cheat - CS2 topluluğu için sürüm duyuruları, projeler ve indirme alanı.">
-<link rel="icon" href="data:,">
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="apple-touch-icon" href="/static/favicon.png">
 <link rel="stylesheet" href="/static/style.css"></head>
 <body><div class="orb orb-a"></div><div class="orb orb-b"></div>
-<header class="topbar"><a class="brand" href="/"><span class="brand-mark">BC</span><span>Biga Cheat</span></a><nav>{account}</nav></header>
+<header class="topbar"><a class="brand" href="/"><img class="brand-logo" src="/static/favicon.png" alt="Biga Cheat logo" width="34" height="34"><span>Biga Cheat</span></a><nav>{account}</nav></header>
 <main>{notice}{body}</main><footer>Biga Cheat · güvenli indirme alanı</footer>
 <script>
     const notice = document.querySelector('.notice.success');
@@ -942,7 +943,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         elif path == "/":
             status = "Hesabınla giriş yaparak sürümü indirebilirsin." if not user else "Hesabın hazır. Güncel sürümü aşağıdan indirebilirsin."
-            body = f"""<section class="hero"><div class="eyebrow">CS2 İÇİN ÖZEL SÜRÜM ALANI</div><h1>CS2 için Biga Cheat<span>.</span></h1><p class="lead">Temiz, hızlı ve tek yerden yönetilen sürüm ve proje alanı.</p>
+            body = f"""<section class="hero"><img class="hero-logo" src="/static/logo.png" alt="Biga Cheat logo" width="140" height="140"><div class="eyebrow">CS2 İÇİN ÖZEL SÜRÜM ALANI</div><h1>CS2 için Biga Cheat<span>.</span></h1><p class="lead">Temiz, hızlı ve tek yerden yönetilen sürüm ve proje alanı.</p>
 <div class="hero-actions">{'<a class="button primary" href="/download">Sürümü indir</a>' if user else '<a class="button primary" href="/register">Ücretsiz hesap oluştur</a><a class="button ghost" href="/login">Giriş yap</a>'}</div></section>
 <section class="panel-grid"><article class="panel"><span class="panel-icon">01</span><h2>Tek hesap</h2><p>Kayıt ol, giriş yap ve indirme alanına güvenli şekilde eriş.</p></article><article class="panel"><span class="panel-icon">02</span><h2>Güncel dosya</h2><p>Yayınlanan sürüm tek bir indirme bağlantısından sunulur.</p></article><article class="panel"><span class="panel-icon">03</span><h2>Projeler</h2><p>Projeler bölümünde kendi arşivini paylaş ve topluluktan keşfet.</p></article></section><p class="status">{status}</p>"""
             with db() as connection:
@@ -1717,6 +1718,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Referrer-Policy", "same-origin")
             self.end_headers()
             self.wfile.write(css)
+        elif path == "/static/logo.png" or path == "/static/favicon.png":
+            img_path = ROOT / "static" / ("favicon.png" if path.endswith("favicon.png") else "logo.png")
+            if not img_path.is_file():
+                self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+                return
+            img = img_path.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(img)))
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.send_header("X-Frame-Options", "DENY")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "same-origin")
+            self.end_headers()
+            self.wfile.write(img)
         else:
             self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1><p class="muted">Aradığın sayfa bulunamadı.</p></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
 
