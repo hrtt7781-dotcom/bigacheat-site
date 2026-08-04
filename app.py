@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import datetime
 import hashlib
@@ -170,6 +170,39 @@ def _migrate(connection) -> None:
             )
             connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower ON users (LOWER(username))")
             connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_until BIGINT NOT NULL DEFAULT 0")
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT NOT NULL DEFAULT ''")
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT ''")
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_link TEXT NOT NULL DEFAULT ''")
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS status_text TEXT NOT NULL DEFAULT ''")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS friends (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    friend_id BIGINT NOT NULL REFERENCES users(id),
+                    created_at BIGINT NOT NULL,
+                    UNIQUE(user_id, friend_id)
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS friend_requests (
+                    id BIGSERIAL PRIMARY KEY,
+                    sender_id BIGINT NOT NULL REFERENCES users(id),
+                    receiver_id BIGINT NOT NULL REFERENCES users(id),
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at BIGINT NOT NULL,
+                    UNIQUE(sender_id, receiver_id)
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS private_messages (
+                    id BIGSERIAL PRIMARY KEY,
+                    sender_id BIGINT NOT NULL REFERENCES users(id),
+                    receiver_id BIGINT NOT NULL REFERENCES users(id),
+                    body TEXT NOT NULL DEFAULT '',
+                    image TEXT NOT NULL DEFAULT '',
+                    created_at BIGINT NOT NULL
+                )"""
+            )
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS sessions (
                     token_hash TEXT PRIMARY KEY,
@@ -281,6 +314,46 @@ def _migrate(connection) -> None:
                 connection.commit()
             except sqlite3.OperationalError:
                 pass
+
+            for col, ddl in (("avatar", "TEXT NOT NULL DEFAULT ''"), ("bio", "TEXT NOT NULL DEFAULT ''"), ("profile_link", "TEXT NOT NULL DEFAULT ''"), ("status_text", "TEXT NOT NULL DEFAULT ''")):
+                try:
+                    connection.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
+                    connection.commit()
+                except sqlite3.OperationalError:
+                    pass
+
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS friends (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    friend_id INTEGER NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(user_id, friend_id),
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS friend_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sender_id INTEGER NOT NULL,
+                    receiver_id INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(sender_id, receiver_id),
+                    FOREIGN KEY(sender_id) REFERENCES users(id)
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS private_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sender_id INTEGER NOT NULL,
+                    receiver_id INTEGER NOT NULL,
+                    body TEXT NOT NULL DEFAULT '',
+                    image TEXT NOT NULL DEFAULT '',
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(sender_id) REFERENCES users(id)
+                )"""
+            )
 
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS sessions (
@@ -606,7 +679,7 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
             
     balance_pill = f'<span class="balance-pill">Bakiye: {balance_val:.2f} TL</span>' if user else ""
     account = (
-        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<span class="user-pill">{esc(user)}{premium_badge}</span><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
+        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/friends" style="color: #b78bff; border-color: #b78bff3d;">👥 Arkadaşlar</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<a class="user-pill" href="/profile/{quote(user)}" title="Profili görüntüle">{esc(user)}{premium_badge}</a><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
         if user
         else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
     )
@@ -1036,7 +1109,8 @@ function escHtml(s) {{
 function bubble(m) {{
   const mine = m.me ? " me" : "";
   const img = m.image ? `<img class="chat-img" src="${{m.image}}" alt="foto">` : "";
-  return `<div class="chat-msg${{mine}}"><div class="chat-head"><b>${{escHtml(m.username)}}</b><time>${{escHtml(m.time)}}</time></div><div class="chat-body">${{img}}<span>${{escHtml(m.body)}}
+  const nameLink = `/profile/${encodeURIComponent(m.username)}`;
+  return `<div class="chat-msg${{mine}}"><div class="chat-head"><b><a class="chat-name" href="${{nameLink}}">${{escHtml(m.username)}}</a></b><time>${{escHtml(m.time)}}</time></div><div class="chat-body">${{img}}<span>${{escHtml(m.body)}}
 </span></div></div>`;
 }}
 
@@ -1102,6 +1176,296 @@ poll();
 setInterval(poll, 1500);
 </script>"""
             self.send_html(page("Sohbet", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok, body_csrf=csrf_tok))
+        elif path == "/profile/edit":
+            if not user:
+                self.redirect("/login")
+                return
+            with db() as connection:
+                row = connection.execute("SELECT avatar, bio, profile_link, status_text FROM users WHERE username=?", (username,)).fetchone()
+            avatar = row["avatar"] if row else ""
+            bio = row["bio"] if row else ""
+            plink = row["profile_link"] if row else ""
+            pstatus = row["status_text"] if row else ""
+            avatar_html = f'<img class="profile-avatar" src="{esc(avatar)}" alt="profil fotoğrafı">' if avatar else '<div class="profile-avatar profile-avatar-empty">👤</div>'
+            body = f"""<section class="page-head"><div><div class="eyebrow">HESABIM</div><h1>Profil Düzenle</h1><p class="lead">Kullanıcı adın değiştirilemez; foto, bio, link ve durum mesajını düzenleyebilirsin.</p></div></section>
+<section class="profile-wrap">
+  <div class="profile-card">
+    {avatar_html}
+    <h2>{esc(username)}{' <span class="premium-badge">PREMIUM</span>' if is_premium else ''}</h2>
+    <p class="muted">Hesap: <code>@{esc(username)}</code></p>
+  </div>
+  <form method="post" action="/profile/update" class="form auth-card" id="profile-form" style="max-width: 640px;">
+    <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+    <label>Profil fotoğrafı (en fazla 300 KB)<input type="file" name="avatar" id="avatar-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none;"><span class="avatar-picker" id="avatar-picker">📷 Fotoğraf Seç</span></label>
+    <input type="hidden" name="avatar_data" id="avatar-data">
+    <label>Durum mesajı<input type="text" name="status_text" maxlength="80" value="{esc(pstatus)}" placeholder="Örn. CS2'deyim"></label>
+    <label>Bio<textarea name="bio" maxlength="300" rows="4" placeholder="Kendinden kısaca bahset...">{esc(bio)}</textarea></label>
+    <label>Link (Steam / Discord / İnstagram)<input type="url" name="profile_link" maxlength="200" value="{esc(plink)}" placeholder="https://steamcommunity.com/id/..."></label>
+    <button class="button primary wide" type="submit">Kaydet</button>
+  </form>
+</section>
+<script>
+  const ap = document.getElementById("avatar-picker");
+  const ai = document.getElementById("avatar-input");
+  const ad = document.getElementById("avatar-data");
+  ap.addEventListener("click", () => ai.click());
+  ai.addEventListener("change", () => {{
+    const f = ai.files[0];
+    if (!f) return;
+    if (f.size > 300 * 1024) {{ alert("Fotoğraf en fazla 300 KB olmalı."); ai.value = ""; return; }}
+    const rd = new FileReader();
+    rd.onload = () => {{ ad.value = rd.result; ap.textContent = "✅ Fotoğraf Seçildi"; }};
+    rd.readAsDataURL(f);
+  }});
+  document.getElementById("profile-form").addEventListener("submit", (ev) => {{
+    ev.preventDefault();
+    const f = ev.target;
+    fetch(f.action, {{method: "POST", headers: {{"Content-Type": "application/json"}}, body: JSON.stringify({{csrf_token: document.body.dataset.csrf, avatar_data: ad.value, status_text: f.status_text.value, bio: f.bio.value, profile_link: f.profile_link.value}})}})
+      .then(r => r.json())
+      .then(d => {{ if (d.ok) {{ alert("✅ Profil güncellendi."); location.reload(); }} else alert(d.error || "Güncellenemedi."); }});
+  }});
+</script>"""
+            self.send_html(page("Profil Düzenle", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok, body_csrf=csrf_tok))
+        elif path.startswith("/profile/"):
+            target_name = unquote(path[len("/profile/"):])
+            if not target_name:
+                self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+                return
+            with db() as connection:
+                target = connection.execute("SELECT id, username, avatar, bio, profile_link, status_text, created_at, premium_until, is_premium FROM users WHERE LOWER(username)=LOWER(?)", (target_name,)).fetchone()
+            if not target:
+                self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1><p class="muted">Bu kullanıcı bulunamadı.</p></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+                return
+            t_avatar = target["avatar"]
+            avatar_html = f'<img class="profile-avatar" src="{esc(t_avatar)}" alt="profil fotoğrafı">' if t_avatar else '<div class="profile-avatar profile-avatar-empty">👤</div>'
+            t_name = target["username"]
+            t_status = target["status_text"]
+            t_bio = target["bio"]
+            t_link = target["profile_link"]
+            t_prem = bool(target["is_premium"]) or target["premium_until"] > int(time.time())
+            member_since = time.strftime("%d.%m.%Y", time.localtime(target["created_at"]))
+            if user and username.lower() == t_name.lower():
+                action_area = f'<a class="button primary" href="/profile/edit">✏️ Profilini Düzenle</a>'
+            else:
+                action_area = ""
+                if user:
+                    with db() as connection:
+                        rel = connection.execute("SELECT status FROM friend_requests WHERE (sender_id=? AND receiver_id=?) OR (sender_id=? AND receiver_id=?)", (target["id"], user[1], user[1], target["id"])).fetchone()
+                        are_friends = connection.execute("SELECT 1 FROM friends WHERE user_id=? AND friend_id=?", (user[1], target["id"])).fetchone()
+                    if are_friends:
+                        action_area = f'<a class="button primary" href="/dm/{quote(t_name)}">💬 Özelden Mesaj</a>'
+                    elif rel and rel["status"] == "pending":
+                        action_area = '<button class="button" disabled style="opacity:.6;">İstek Bekliyor</button>'
+                    else:
+                        action_area = f'<form method="post" action="/friends/request" class="inline"><input type="hidden" name="csrf_token" value="{esc(csrf_tok)}"><input type="hidden" name="target" value="{esc(t_name)}"><button class="button primary" type="submit">➕ Arkadaş Ekle</button></form>'
+                else:
+                    action_area = '<a class="button" href="/login">Giriş yap</a>'
+            link_html = f'<a class="profile-link" href="{esc(t_link)}" target="_blank" rel="noopener">🔗 {esc(t_link)}</a>' if t_link else ""
+            status_html = f'<span class="profile-status">{esc(t_status)}</span>' if t_status else ""
+            body = f"""<section class="profile-wrap" style="max-width: 720px; margin: 0 auto;">
+  <div class="profile-card">
+    {avatar_html}
+    <h2>{esc(t_name)}{' <span class="premium-badge">PREMIUM</span>' if t_prem else ''}</h2>
+    {status_html}
+    <p class="muted">Topluluk üyesi · Katılım: {member_since}</p>
+    <p class="profile-bio">{esc(t_bio)}</p>
+    {link_html}
+    <div style="margin-top: 20px;">{action_area}</div>
+  </div>
+</section>"""
+            self.send_html(page(f"@{t_name}", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok, body_csrf=csrf_tok))
+        elif path == "/friends":
+            if not user:
+                self.redirect("/login")
+                return
+            with db() as connection:
+                requests_in = connection.execute(
+                    "SELECT fr.id, u.username, u.avatar, u.status_text FROM friend_requests fr JOIN users u ON u.id=fr.sender_id WHERE fr.receiver_id=? AND fr.status='pending' ORDER BY fr.created_at DESC",
+                    (user[1],),
+                ).fetchall()
+                requests_out = connection.execute(
+                    "SELECT u.username, u.avatar, u.status_text FROM friend_requests fr JOIN users u ON u.id=fr.receiver_id WHERE fr.sender_id=? AND fr.status='pending' ORDER BY fr.created_at DESC",
+                    (user[1],),
+                ).fetchall()
+                friend_rows = connection.execute(
+                    "SELECT u.username, u.avatar, u.status_text FROM friends f JOIN users u ON u.id=f.friend_id WHERE f.user_id=? ORDER BY u.username ASC",
+                    (user[1],),
+                ).fetchall()
+            def friend_item(u, is_out=False, req_id=0):
+                av = u["avatar"]
+                av_html = f'<img class="mini-avatar" src="{esc(av)}" alt="">' if av else '<span class="mini-avatar empty">👤</span>'
+                st = f'<span class="profile-status">{esc(u["status_text"])}</span>' if u["status_text"] else ""
+                nm = esc(u["username"])
+                if is_out:
+                    btn = '<span class="muted" style="font-size:13px;">⏳ Bekleniyor</span>'
+                else:
+                    btn = f'<form method="post" action="/friends/accept" class="inline"><input type="hidden" name="csrf_token" value="{esc(csrf_tok)}"><input type="hidden" name="req_id" value="{req_id}"><button class="button small primary" type="submit">Kabul Et</button></form><form method="post" action="/friends/decline" class="inline"><input type="hidden" name="csrf_token" value="{esc(csrf_tok)}"><input type="hidden" name="req_id" value="{req_id}"><button class="button small ghost" type="submit" style="border-color:#ff44663d;color:#ff4466;">Reddet</button></form>'
+                return f'<div class="friend-row">{av_html}<a class="friend-name" href="/profile/{quote(nm)}">{nm}</a>{st}<div class="friend-actions">{btn}</div></div>'
+            def friend_row(u):
+                av = u["avatar"]
+                av_html = f'<img class="mini-avatar" src="{esc(av)}" alt="">' if av else '<span class="mini-avatar empty">👤</span>'
+                st = f'<span class="profile-status">{esc(u["status_text"])}</span>' if u["status_text"] else ""
+                nm = esc(u["username"])
+                return f'<div class="friend-row">{av_html}<a class="friend-name" href="/profile/{quote(nm)}">{nm}</a>{st}<div class="friend-actions"><a class="button small ghost" href="/dm/{quote(nm)}">💬 Mesaj</a></div></div>'
+            in_html = "".join(friend_item(r, req_id=r["id"]) for r in requests_in) or '<p class="muted">Bekleyen arkadaşlık isteği yok.</p>'
+            out_html = "".join(friend_item(r, is_out=True) for r in requests_out) or '<p class="muted">Gönderdiğin istek yok.</p>'
+            friends_html = "".join(friend_row(r) for r in friend_rows) or '<p class="muted">Henüz arkadaşın yok. Profillerden ya da sohbetten arkadaş ekleyebilirsin.</p>'
+            body = f"""<section class="page-head"><div><div class="eyebrow">TOPLULUK</div><h1>👥 Arkadaşlar</h1><p class="lead">Arkadaşlarınla özel sohbet et, profillerini görüntüle.</p></div></section>
+<section class="friends-layout">
+  <div class="auth-card">
+    <h2>Yeni arkadaş ekle</h2>
+    <form method="get" action="/friends" class="form">
+      <label>Kullanıcı adı (örn. Sas)<input type="text" name="q" maxlength="24" placeholder="Kullanıcı adı ara..." value="{esc(query.get('q',[''])[0])}"></label>
+      <button class="button primary wide" type="submit">Ara</button>
+    </form>
+    <div id="q-results" style="margin-top: 16px;"></div>
+  </div>
+  <div class="auth-card">
+    <h2>👋 Gelen istekler</h2>
+    {in_html}
+  </div>
+  <div class="auth-card">
+    <h2>⏳ Giden istekler</h2>
+    {out_html}
+  </div>
+  <div class="auth-card">
+    <h2>🤝 Arkadaşların</h2>
+    {friends_html}
+  </div>
+</section>"""
+            q = query.get("q", [""])[0].strip()
+            if q:
+                with db() as connection:
+                    results = connection.execute("SELECT username, avatar, status_text FROM users WHERE LOWER(username) LIKE LOWER(?) AND LOWER(username)!=LOWER(?) ORDER BY username LIMIT 12", (f"%{q}%", username)).fetchall()
+                if results:
+                    res_html = "".join(friend_row(r) for r in results)
+                    body = body.replace('id="q-results">', f'id="q-results">{res_html}')
+                else:
+                    body = body.replace('id="q-results">', f'id="q-results"><p class="muted">Sonuç yok.</p>')
+            self.send_html(page("Arkadaşlar", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok, body_csrf=csrf_tok))
+        elif path == "/dm/api/messages":
+            if not user:
+                self.send_json({"ok": False, "error": "giris_gerekli"}, 401)
+                return
+            peer_name = query.get("peer", [""])[0]
+            try:
+                after = int(query.get("after", ["0"])[0] or 0)
+            except ValueError:
+                after = 0
+            with db() as connection:
+                peer = connection.execute("SELECT id FROM users WHERE LOWER(username)=LOWER(?)", (peer_name,)).fetchone()
+            if not peer:
+                self.send_json({"ok": False, "error": "Kullanıcı bulunamadı."}, 404)
+                return
+            with db() as connection:
+                are_friends = connection.execute("SELECT 1 FROM friends WHERE user_id=? AND friend_id=?", (user[1], peer["id"])).fetchone()
+            if not are_friends:
+                self.send_json({"ok": False, "error": "Sadece arkadaşlarınla özel konuşabilirsin."}, 403)
+                return
+            with db() as connection:
+                rows = connection.execute(
+                    "SELECT id, sender_id, body, image, created_at FROM private_messages WHERE id>? AND ((sender_id=? AND receiver_id=?) OR (sender_id=? AND receiver_id=?)) ORDER BY id ASC LIMIT 200",
+                    (after, user[1], peer["id"], peer["id"], user[1]),
+                ).fetchall()
+            messages = []
+            for row in rows:
+                messages.append({
+                    "id": row["id"],
+                    "me": row["sender_id"] == user[1],
+                    "body": row["body"],
+                    "image": row["image"],
+                    "time": time.strftime("%H:%M", time.localtime(row["created_at"])),
+                })
+            self.send_json({"ok": True, "messages": messages})
+            return
+        elif path.startswith("/dm/"):
+            if not user:
+                self.redirect("/login")
+                return
+            peer_name = unquote(path[len("/dm/"):])
+            with db() as connection:
+                peer = connection.execute("SELECT id, username, avatar, status_text FROM users WHERE LOWER(username)=LOWER(?)", (peer_name,)).fetchone()
+            if not peer:
+                self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1><p class="muted">Bu kullanıcı bulunamadı.</p></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+                return
+            with db() as connection:
+                are_friends = connection.execute("SELECT 1 FROM friends WHERE user_id=? AND friend_id=?", (user[1], peer["id"])).fetchone()
+            if not are_friends:
+                self.redirect(f"/profile/{quote(peer['username'])}?msg=Once+arkadas+ekle.&msg_type=error")
+                return
+            peer_av = peer["avatar"]
+            peer_av_html = f'<img class="mini-avatar" src="{esc(peer_av)}" alt="">' if peer_av else '<span class="mini-avatar empty">👤</span>'
+            peer_st = f'<span class="profile-status">{esc(peer["status_text"])}</span>' if peer["status_text"] else ""
+            body = f"""<section class="page-head"><div><div class="eyebrow">ÖZEL MESAJ</div><h1>{peer_av_html} {esc(peer['username'])} {peer_st}</h1><p class="lead">Sadece sen ve {esc(peer['username'])} görebiliyorsunuz.</p></div></section>
+<section class="chat-wrap">
+  <div class="chat-box" id="chat-box"></div>
+  <div class="chat-input-row">
+    <button type="button" class="chat-emoji-btn" id="chat-emoji-btn" title="Emoji">😊</button>
+    <input type="text" id="chat-text" maxlength="400" placeholder="Mesajını yaz...">
+    <label class="chat-photo-btn" title="Fotoğraf gönder">📷<input type="file" id="chat-photo" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none;"></label>
+    <button type="button" class="button primary" id="chat-send">Gönder</button>
+  </div>
+  <div class="chat-emoji-panel" id="chat-emoji-panel" style="display:none;"></div>
+</section>
+<script>
+const PEER = {json.dumps(peer["username"], ensure_ascii=False)};
+const CHAT_EMOJIS = ["😀","😁","😂","🤣","😊","😎","🤩","😍","🥰","😜","🤪","😴","🤔","😅","🙃","😉","👍","👎","👏","🙏","💪","🔥","⚡","🚀","🎯","🏆","💯","❤️","💛","💚","💙","🖤","💎","🎁","👑","🍀","🤝","✌️","🤙","👌","😈","🫡","🥶","🤯","🫠","😭","🥹","😤","🤮","🤡","💀","☠️","🫵","👇","➡️","✅","❌","⚠️","💬","🗣️"];
+let lastMsgId = 0;
+const box = document.getElementById("chat-box");
+const textEl = document.getElementById("chat-text");
+const sendBtn = document.getElementById("chat-send");
+const emojiBtn = document.getElementById("chat-emoji-btn");
+const emojiPanel = document.getElementById("chat-emoji-panel");
+const photoEl = document.getElementById("chat-photo");
+function escHtml(s) {{ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }}
+function bubble(m) {{
+  const mine = m.me ? " me" : "";
+  const img = m.image ? `<img class="chat-img" src="${{m.image}}" alt="foto">` : "";
+  return `<div class="chat-msg${{mine}}"><div class="chat-head"><b>${{escHtml(PEER)}}</b><time>${{escHtml(m.time)}}</time></div><div class="chat-body">${{img}}<span>${{escHtml(m.body)}}
+</span></div></div>`;
+}}
+function renderMessages(msgs) {{
+  for (const m of msgs) {{
+    if (m.id <= lastMsgId) continue;
+    box.insertAdjacentHTML("beforeend", bubble(m));
+    if (m.id > lastMsgId) lastMsgId = m.id;
+  }}
+  box.scrollTop = box.scrollHeight;
+}}
+async function poll() {{
+  try {{
+    const r = await fetch("/dm/api/messages?peer=" + encodeURIComponent(PEER) + "&after=" + lastMsgId, {{cache:"no-store"}});
+    if (r.ok) {{ const data = await r.json(); renderMessages(data.messages || []); }}
+  }} catch(e) {{}}
+}}
+function sendText() {{
+  const body = textEl.value.trim();
+  if (!body) return;
+  const payload = {{body: body, to: PEER, csrf_token: document.body.dataset.csrf}};
+  fetch("/dm/send", {{method:"POST", headers:{{"Content-Type":"application/json"}}, body: JSON.stringify(payload)}})
+    .then(r => r.json())
+    .then(d => {{ if (d.ok) {{ textEl.value = ""; poll(); }} else alert(d.error || "Gönderilemedi."); }});
+}}
+photoEl.addEventListener("change", () => {{
+  const f = photoEl.files[0];
+  if (!f) return;
+  if (f.size > 300 * 1024) {{ alert("Fotoğraf en fazla 300 KB olmalı."); photoEl.value = ""; return; }}
+  const reader = new FileReader();
+  reader.onload = () => {{
+    fetch("/dm/send", {{method:"POST", headers:{{"Content-Type":"application/json"}}, body: JSON.stringify({{image: reader.result, to: PEER, csrf_token: document.body.dataset.csrf}})}})
+      .then(r => r.json())
+      .then(d => {{ if (d.ok) {{ photoEl.value = ""; poll(); }} else alert(d.error || "Gönderilemedi."); }});
+  }};
+  reader.readAsDataURL(f);
+}});
+emojiBtn.addEventListener("click", () => {{ emojiPanel.style.display = emojiPanel.style.display === "none" ? "flex" : "none"; }});
+CHAT_EMOJIS.forEach(e => {{ const b = document.createElement("button"); b.type = "button"; b.className = "chat-emoji-item"; b.textContent = e; b.addEventListener("click", () => {{ textEl.value += e; textEl.focus(); }}); emojiPanel.appendChild(b); }});
+sendBtn.addEventListener("click", sendText);
+textEl.addEventListener("keydown", (ev) => {{ if (ev.key === "Enter") {{ ev.preventDefault(); sendText(); }} }});
+poll();
+setInterval(poll, 1500);
+</script>"""
+            self.send_html(page(f"Özel: {peer['username']}", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok, body_csrf=csrf_tok))
         elif path == "/login":
             q_text, c_val = generate_captcha()
             fields = f'<label>Kullanıcı adı<input name="username" autocomplete="username" required maxlength="24"></label><label>Şifre<input name="password" type="password" autocomplete="current-password" required></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
@@ -1935,7 +2299,7 @@ setInterval(poll, 1500);
             if not self.verify_csrf(fields):
                 self.send_json({"ok": False, "error": "CSRF doğrulaması başarısız."}, 403)
                 return
-            if not rate_allowed(ip, "chat/send"):
+            if not rate_allowed(f"{ip}:chat:{current[1]}", "chat/send"):
                 self.send_json({"ok": False, "error": "Çok hızlı mesaj atıyorsun. Biraz bekle."}, 429)
                 return
             body_text = fields.get("body", "").strip()
@@ -1959,6 +2323,144 @@ setInterval(poll, 1500);
                     (current[1], username or "?", body_text, image_data, int(time.time())),
                 )
             self.send_json({"ok": True})
+            return
+        elif path == "/dm/send":
+            if not current:
+                self.send_json({"ok": False, "error": "Giriş yapmalısın."}, 401)
+                return
+            if not self.verify_csrf(fields):
+                self.send_json({"ok": False, "error": "CSRF doğrulaması başarısız."}, 403)
+                return
+            if not rate_allowed(f"{ip}:dm:{current[1]}", "chat/send"):
+                self.send_json({"ok": False, "error": "Çok hızlı mesaj atıyorsun. Biraz bekle."}, 429)
+                return
+            to_name = fields.get("to", "").strip()
+            body_text = fields.get("body", "").strip()
+            image_data = fields.get("image", "").strip()
+            if not to_name:
+                self.send_json({"ok": False, "error": "Alıcı belirtilmedi."}, 400)
+                return
+            if not body_text and not image_data:
+                self.send_json({"ok": False, "error": "Mesaj boş olamaz."}, 400)
+                return
+            if len(body_text) > 400:
+                self.send_json({"ok": False, "error": "Mesaj en fazla 400 karakter olabilir."}, 400)
+                return
+            if image_data:
+                if len(image_data) > 400_000:
+                    self.send_json({"ok": False, "error": "Fotoğraf çok büyük (en fazla 300 KB)."}, 400)
+                    return
+                if not image_data.startswith("data:image/"):
+                    self.send_json({"ok": False, "error": "Geçersiz fotoğraf."}, 400)
+                    return
+            with db() as connection:
+                peer = connection.execute("SELECT id FROM users WHERE LOWER(username)=LOWER(?)", (to_name,)).fetchone()
+            if not peer:
+                self.send_json({"ok": False, "error": "Kullanıcı bulunamadı."}, 404)
+                return
+            if peer["id"] == current[1]:
+                self.send_json({"ok": False, "error": "Kendine mesaj atamazsın."}, 400)
+                return
+            with db() as connection:
+                are_friends = connection.execute("SELECT 1 FROM friends WHERE user_id=? AND friend_id=?", (current[1], peer["id"])).fetchone()
+            if not are_friends:
+                self.send_json({"ok": False, "error": "Sadece arkadaşlarınla özel konuşabilirsin."}, 403)
+                return
+            with db() as connection:
+                connection.execute(
+                    "INSERT INTO private_messages(sender_id, receiver_id, body, image, created_at) VALUES(?,?,?,?,?)",
+                    (current[1], peer["id"], body_text, image_data, int(time.time())),
+                )
+            self.send_json({"ok": True})
+            return
+        elif path == "/profile/update":
+            if not current:
+                self.send_json({"ok": False, "error": "Giriş yapmalısın."}, 401)
+                return
+            if not self.verify_csrf(fields):
+                self.send_json({"ok": False, "error": "CSRF doğrulaması başarısız."}, 403)
+                return
+            avatar_data = fields.get("avatar_data", "").strip()
+            status_text = fields.get("status_text", "").strip()[:80]
+            bio = fields.get("bio", "").strip()[:300]
+            profile_link = fields.get("profile_link", "").strip()[:200]
+            if avatar_data and not (avatar_data.startswith("data:image/") and len(avatar_data) <= 400_000):
+                self.send_json({"ok": False, "error": "Geçersiz fotoğraf."}, 400)
+                return
+            with db() as connection:
+                connection.execute("UPDATE users SET avatar=?, status_text=?, bio=?, profile_link=? WHERE id=?", (avatar_data, status_text, bio, profile_link, current[1]))
+            self.send_json({"ok": True})
+            return
+        elif path == "/friends/request":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            target = fields.get("target", "").strip()
+            with db() as connection:
+                trow = connection.execute("SELECT id FROM users WHERE LOWER(username)=LOWER(?)", (target,)).fetchone()
+            if not trow:
+                self.redirect("/friends?msg=Kullanici+bulunamadi&msg_type=error")
+                return
+            if trow["id"] == current[1]:
+                self.redirect("/friends?msg=Kendine+arkadas+ekleyemezsin&msg_type=error")
+                return
+            with db() as connection:
+                already = connection.execute("SELECT 1 FROM friends WHERE user_id=? AND friend_id=?", (current[1], trow["id"])).fetchone()
+                if already:
+                    self.redirect("/friends?msg=Zaten+arkadassiniz&msg_type=error")
+                    return
+                existing = connection.execute("SELECT id, sender_id, status FROM friend_requests WHERE (sender_id=? AND receiver_id=?) OR (sender_id=? AND receiver_id=?)", (current[1], trow["id"], trow["id"], current[1])).fetchone()
+                if existing:
+                    if existing["status"] == "pending":
+                        self.redirect("/friends?msg=Istek+zaten+bekliyor&msg_type=error")
+                        return
+                    if existing["status"] == "declined":
+                        connection.execute("UPDATE friend_requests SET status='pending', created_at=? WHERE id=?", (int(time.time()), existing["id"]))
+                    else:
+                        connection.execute("UPDATE friend_requests SET status='pending', sender_id=?, receiver_id=?, created_at=? WHERE id=?", (current[1], trow["id"], int(time.time()), existing["id"]))
+                else:
+                    connection.execute("INSERT INTO friend_requests(sender_id, receiver_id, status, created_at) VALUES(?,?,'pending',?)", (current[1], trow["id"], int(time.time())))
+            self.redirect(f"/profile/{quote(target)}?msg=Arkadaslik+istegi+gonderildi&msg_type=success")
+            return
+        elif path == "/friends/accept":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            try:
+                req_id = int(fields.get("req_id", "0") or 0)
+            except ValueError:
+                req_id = 0
+            with db() as connection:
+                req = connection.execute("SELECT sender_id FROM friend_requests WHERE id=? AND receiver_id=? AND status='pending'", (req_id, current[1])).fetchone()
+                if not req:
+                    self.redirect("/friends?msg=Istek+bulunamadi&msg_type=error")
+                    return
+                connection.execute("UPDATE friend_requests SET status='accepted' WHERE id=?", (req_id,))
+                now = int(time.time())
+                connection.execute("INSERT INTO friends(user_id, friend_id, created_at) VALUES(?,?,?)", (current[1], req["sender_id"], now))
+                connection.execute("INSERT INTO friends(user_id, friend_id, created_at) VALUES(?,?,?)", (req["sender_id"], current[1], now))
+            self.redirect("/friends?msg=Arkadaslik+kuruldu!&msg_type=success")
+            return
+        elif path == "/friends/decline":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            try:
+                req_id = int(fields.get("req_id", "0") or 0)
+            except ValueError:
+                req_id = 0
+            with db() as connection:
+                connection.execute("UPDATE friend_requests SET status='declined' WHERE id=? AND receiver_id=?", (req_id, current[1]))
+            self.redirect("/friends?msg=Istek+reddedildi&msg_type=success")
             return
         elif path == "/register":
             name = fields.get("username", "").strip()
