@@ -28,11 +28,13 @@ body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.16;ba
 body:after{content:"";position:fixed;inset:0;pointer-events:none;background:linear-gradient(180deg,transparent 60%,#05070d 98%)}
 a{color:inherit;text-decoration:none}
 .orb{position:fixed;filter:blur(110px);border-radius:50%;opacity:.14;pointer-events:none;z-index:0}.orb-a{width:360px;height:360px;background:#ffd700;top:-200px;left:-160px}.orb-b{width:480px;height:480px;background:#123f6e;right:-260px;bottom:-240px}.orb-c{width:300px;height:300px;background:#1c1400;left:40%;top:45%}
-.topbar{height:78px;display:flex;align-items:center;justify-content:space-between;max-width:1240px;margin:auto;padding:0 28px;border-bottom:1px solid var(--line-gold);position:relative;z-index:2;background:linear-gradient(180deg,#070b14dd,#070b1400)}
+.topbar{min-height:78px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px 14px;max-width:1240px;margin:auto;padding:12px 28px;border-bottom:1px solid var(--line-gold);position:relative;z-index:2;background:linear-gradient(180deg,#070b14dd,#070b1400)}
+.topbar .brand{margin-right:auto}
+.topbar nav{flex:1 1 100%;justify-content:flex-end}
 .brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.3px;color:#f4e8c8}.brand-logo{width:36px;height:36px;border-radius:10px;object-fit:cover;border:1px solid #ffd70044;box-shadow:0 0 24px #ffd70022}.brand span{font-size:18px}.brand span:last-child{background:linear-gradient(90deg,#ffd700,#fff1b0);-webkit-background-clip:text;background-clip:text;color:transparent}
 .hero-logo{display:block;margin:0 auto 20px;border-radius:26px;object-fit:cover;border:1px solid #ffd70033;box-shadow:0 24px 80px #ffd7002e}
 nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.button,.ghost,button{border:0;border-radius:9px;padding:11px 16px;font-weight:750;cursor:pointer;font:inherit;transition:.2s ease}
+.button,.ghost,button{border:0;border-radius:9px;padding:11px 16px;font-weight:750;cursor:pointer;font:inherit;transition:.2s ease;white-space:nowrap}
 .button:hover,.ghost:hover,button:hover{transform:translateY(-1px);filter:brightness(1.14)}
 .button.primary,.primary{color:#140d00;background:linear-gradient(135deg,#ffe066,#ffc400 55%,#e0a400);box-shadow:0 12px 34px #ffc40033;border:1px solid #ffd70055}
 .primary:hover{box-shadow:0 14px 40px #ffc40044}
