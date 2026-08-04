@@ -97,7 +97,7 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "inventory/sell": (5, 60),
     "trade/send": (5, 60),
     "trade/respond": (10, 60),
-    "chat/support": (30, 60),
+    "chat/support": (60, 60),
 }
 
 # CS2 benzeri kasa sistemi
@@ -277,7 +277,149 @@ BOT_RULES: list[tuple[tuple[str, ...], str]] = [
      "🔧 SORUN GİDERME\nBir hata mı var? Şunları dene:\n\n1. Sayfayı yenile (F5) — geçici hatalar genelde düzelir.\n2. Başka tarayıcı/cache temizliği dene.\n3. Bakiye yetersizse kasa açılmaz (bakiyeni kontrol et).\n4. Çok hızlı işlem yapıyorsan 'çok hızlı' uyarısı alırsın — 1 dk bekle.\n\nHâlâ çözülmediyse detaylı olarak yaz: hangi sayfada, ne yapınca ne oluyor?"),
 ]
 
-BOT_FALLBACK = "Bu konuda net bir bilgim yok 😅 Şunlardan birini sorabilirsin:\n\n• 🎁 Kasa sistemi nasıl çalışır?\n• 💰 Bakiye nasıl yüklenir?\n• 💎 Premium/ücretli hileler nedir?\n• 🛒 Pazar'da nasıl satarım/alırım?\n• 🔁 Takas nasıl yapılır?\n• 🎒 Envanterden nasıl satarım?\n• 🎡 Çark ve Günlük Ödül nedir?\n• 📦 İndirme/loader sorunları\n\nYa da sorunu detaylı yaz, en iyi eşleşmeyi bulayım!"
+BOT_FALLBACK = "Bu konuda net bir bilgim yok 😅 Şunlardan birini sorabilirsin:\n\n• 🎁 Kasa sistemi nasıl çalışır?\n• 💰 Bakiye nasıl yüklenir?\n• 💎 Premium/ücretli hileler nedir?\n• 🛒 Pazar'da nasıl satarım/alırım?\n• 🔁 Takas nasıl yapılır?\n• 🎒 Envanterden nasıl satarım?\n• 🎡 Çark ve Günlük Ödül nedir?\n• 📦 İndirme/loader sorunları\n\n💡 İpucu: Hata kodu veya hata metnini olduğu gibi yapıştır (ör. 0xC0000005, msvcp140.dll, 'VAC authentication error') — ben analiz edip nedenini ve çözümünü söyleyeyim!"
+
+
+# ---------------------------------------------------------------------------
+# HATA KODU / SORUN GİDERME VERİTABANI (kural tabanlı, API'siz):
+# Kullanıcı bir hata kodu, DLL adı veya hata metni yapıştırınca önce burası taranır.
+# Her kayıt: (anahtar kelimeler, detaylı Türkçe cevap). Cevaplar uzun tutuldu,
+# böylece bot kullanıcıyı yönlendirip "konuşur". Eşleşme bot_reply içinde
+# BOT_RULES'tan ÖNCE kontrol edilir (hata her zaman öncelikli).
+# ---------------------------------------------------------------------------
+BOT_ERRORS: list[tuple[tuple[str, ...], str]] = [
+    # ---------- GENEL WINDOWS HATA KODLARI ----------
+    (("0xc0000005", "access violation", "bellek erişim hatası"),
+     "🔴 HATA 0xC0000005 (Access Violation) — NEDEN?\nBu hata 'belleğe erişilemedi' demektir. Hile/loader sürücüleri veya oyun bellek bölgelerine müdahale ettiği için Windows bu kodu fırlatır.\n\nEn yaygın nedenler:\n• Antivirüs/Windows Defender araya girip dosyayı engelledi\n• Eski/uyumsuz ekran kartı veya ses sürücüsü\n• Loader veya oyun güncel değil (güncellemeden sonra patlar)\n• RAM sorunu veya hatalı overclock\n\nÇÖZÜM:\n1. Windows Defender gerçek zamanlı korumayı kapat (aşağıdaki adımlar)\n2. Loader'ı ve oyunu YÖNETİCİ olarak çalıştır (sağ tık → Yönetici olarak çalıştır)\n3. Ekran kartı sürücünü güncelle (DDU ile temiz kurulum önerilir)\n4. Windows'u güncelle: Ayarlar → Güncelleştirme ve Güvenlik → Güncelleştirmeleri denetle\n5. Hâlâ olmazsa: Başlat → cmd → sfc /scannow çalıştır (sistem dosyalarını onarır)\n\n🔁 Sorun devam ederse hata metninin TAMAMINI yapıştır, birlikte bakalım."),
+    (("0xc0000135", "dll bulunamadı", "dll not found"),
+     "🔴 HATA 0xC0000135 (DLL Bulunamadı) — NEDEN?\nWindows, programın ihtiyaç duyduğu kütüphaneyi (.NET veya Visual C++) bulamıyor.\n\nÇÖZÜM:\n1. Microsoft .NET Framework 4.8'i indirip kur (resmi Microsoft sitesi)\n2. Visual C++ Redistributable 2015-2022 sürümünü HEM x64 HEM x86 olarak kur\n3. Windows Güncelleştirmelerini tamamla\n4. Loader'ı tekrar indir — indirme sırasında dosya bozulmuş olabilir\n\n💡 Not: Hangi DLL'in eksik olduğu hatada yazıyorsa (ör. msvcp140.dll) o DLL'in adını buraya yaz, özel çözüm vereyim!"),
+    (("0xc000007b", "bad image", "dll uyumsuz"),
+     "🔴 HATA 0xC000007B (BAD_IMAGE) — NEDEN?\nProgram ile kullanılan DLL arasında mimari uyumsuzluk var (32-bit/64-bit çakışması) veya DLL bozuk.\n\nÇÖZÜM:\n1. Visual C++ Redistributable'ın HEM x86 HEM x64 sürümünü kur (çok önemli!)\n2. DirectX Web Installer'ı çalıştır\n3. .NET Framework 4.8 kur\n4. Loader/oyunu yeniden indir (ZIP bozulmuş olabilir)\n5. Windows güncellemelerini yap\n\nBu hata genellikle 'yeni Windows'a eski oyun/hile kurma' durumunda çıkar."),
+    (("0xc0000142", "dll init", "başlatılamadı dll"),
+     "🔴 HATA 0xC0000142 (DLL Başlatma Hatası) — NEDEN?\nSistem, programın açılması için gereken kütüphaneyi başlatamadı. Genelde bozuk sistem dosyası veya eksik sürücüden olur.\n\nÇÖZÜM:\n1. Başlat → cmd (Yönetici) → sfc /scannow yaz, bitmesini bekle\n2. Ardından: DISM /Online /Cleanup-Image /RestoreHealth\n3. Bilgisayarı yeniden başlat\n4. Visual C++ x64+x86 ve .NET 4.8 kurulumlarını yenile\n5. Loader'ı yönetici olarak çalıştır"),
+    (("0x80070005", "access denied", "erişim reddedildi"),
+     "🔴 HATA 0x80070005 (Erişim Reddedildi) — NEDEN?\nWindows, programa ilgili klasöre/dosyaya erişim izni vermiyor.\n\nÇÖZÜM:\n1. Loader/oyun klasörüne sağ tık → Özellikler → Güvenlik sekmesi → Kullanıcına 'Tam Denetim' ver\n2. Programı YÖNETİCİ olarak çalıştır\n3. Programı masaüstüne veya ayrı bir klasöre taşı (Program Files dışına kur!)\n4. Klasörde 'Salt okunur' işareti varsa kaldır\n5. Antivirüs engellemiyorsa klasörü istisnalara ekle"),
+    (("0x8007007e", "modül bulunamadı", "module not found"),
+     "🔴 HATA 0x8007007E (Modül Bulunamadı) — NEDEN?\nWindows, programın ihtiyaç duyduğu bir DLL/modülü bulamıyor.\n\nÇÖZÜM:\n1. Visual C++ Redistributable x64+x86 kur\n2. DirectX kur\n3. Oyun/loader dosyalarını doğrula (Steam: Oyun → Özellikler → Yerel Dosyalar → Oyun dosyalarının bütünlüğünü doğrula)\n4. Loader'ı yeniden indir"),
+    (("0x80004005", "genel hata", "unspecified error"),
+     "🔴 HATA 0x80004005 (Genel Hata) — NEDEN?\nBelirsiz bir sistem hatası — genelde disk izni, UAC veya bozuk dosyadan kaynaklanır.\n\nÇÖZÜM:\n1. cmd (Yönetici) → sfc /scannow\n2. chkdsk C: /f → 'Evet' de ve yeniden başlat (disk taraması)\n3. Loader'ı yönetici olarak çalıştır\n4. Programı C: dışına kurmayı dene\n5. Antivirüsü geçici kapatıp tekrar dene"),
+    (("0xc000000d", "invalid parameter"),
+     "🔴 HATA 0xC000000D (Geçersiz Parametre) — NEDEN?\nProgram, işletim sistemiyle uyumsuz bir çağrı yapıyor. Genelde eski yazılım + yeni Windows kombinasyonunda görülür.\n\nÇÖZÜM:\n1. Windows uyumluluk modunu dene: exe → sağ tık → Özellikler → Uyumluluk → 'Windows 8/10' seç\n2. Visual C++ ve .NET kurulumlarını yenile\n3. Windows'u güncelle\n4. Loader sürümünü güncelle"),
+
+    # ---------- MAVİ EKRAN (BSOD) KODLARI ----------
+    (("0x0000007b", "inaccessible boot device"),
+     "🔴 MAVİ EKRAN 0x0000007B (INACCESSIBLE_BOOT_DEVICE)\nWindows açılırken diske erişemedi. Genelde sürücü/hile sürücüsü çakışması veya AHCI/RAID ayar değişikliği yüzünden olur.\n\nÇÖZÜM:\n1. BIOS'ta SATA modunu AHCI yap (IDE ise değiştir)\n2. Güvenli Modda aç: Ayarlar → Sistem → Kurtarma → Gelişmiş başlangıç → Sorun Gider → Güvenli Mod\n3. Son kurduğun sürücüyü kaldır (özellikle hile sürücüleri!)\n4. sfc /scannow + chkdsk çalıştır\n5. Hâlâ olmazsa sistem geri yükleme yap"),
+    (("0x000000d1", "driver irql"),
+     "🔴 MAVİ EKRAN 0x000000D1 (DRIVER_IRQL_NOT_LESS_OR_EQUAL)\nBir sürücü yanlış belleğe erişmeye çalıştı. Hile/loader sürücüleri veya uyumsuz sürücü çakışması buna yol açar.\n\nÇÖZÜM:\n1. Son kurduğun sürücüyü kaldır (güvenli modda)\n2. Loader'ı güncel sürümüyle tekrar kur\n3. Ekran kartı sürücünü DDU ile temiz kur\n4. Windows güncellemelerini yap\n5. Hile/loader sürücüsünün oyunla eş zamanlı açık olmadığından emin ol"),
+    (("0x00000050", "page fault"),
+     "🔴 MAVİ EKRAN 0x00000050 (PAGE_FAULT_IN_NONPAGED_AREA)\nSistem, mevcut olmayan belleğe erişmeye çalıştı. Antivirüs veya hile sürücüsü genelde sebep olur.\n\nÇÖZÜM:\n1. Antivirüsü tamamen kaldır (sadece kapatma yetmez) — Defender'ı da geçici kapat\n2. cmd (Yönetici) → sfc /scannow\n3. RAM testi yap: Windows Bellek Tanılama Aracı\n4. Loader sürümünü güncelle\n5. Yeniden başlat ve temiz sürücü kur"),
+    (("0x0000001a", "memory management"),
+     "🔴 MAVİ EKRAN 0x0000001A (MEMORY_MANAGEMENT)\nBellek yönetimi hatası — genelde RAM/overclock sorunu, bazen de sürücü çakışması.\n\nÇÖZÜM:\n1. Overclock varsa sıfırla (XMP/DOCP'yi kapat)\n2. Windows Bellek Tanılama çalıştır (Başlat → 'Windows Bellek Tanılama')\n3. RAM modüllerini çıkar-tak veya tek modülle dene\n4. sfc /scannow\n5. Antivirüs + loader sürücüsü çakışması için Defender'ı geçici kapat"),
+    (("0x0000007e", "system thread exception"),
+     "🔴 MAVİ EKRAN 0x0000007E (SYSTEM_THREAD_EXCEPTION_NOT_HANDLED)\nBir sistem iş parçacığı beklenmedik hata verdi. Sürücü uyumsuzluğu ana neden.\n\nÇÖZÜM:\n1. Ekran kartı sürücüsünü DDU ile temiz kur\n2. Son kurulan programı/sürücüyü kaldır\n3. Windows güncelle\n4. Güvenli modda açılıyorsa sorun yazılımda — loader'ı güncelle\n5. sfc /scannow"),
+    (("0x00000116", "video tdr failure"),
+     "🔴 MAVİ EKRAN 0x00000116 (VIDEO_TDR_FAILURE)\nEkran kartı yanıt vermeyi kesti. Hile/oyun + GPU sürücüsü çakışması çok yaygın.\n\nÇÖZÜM:\n1. DDU ile temiz GPU sürücüsü kur (NVIDIA/AMD resmi site)\n2. Oyun içi grafik ayarlarını düşür\n3. GPU overclock varsa kapat\n4. Windows güncelle\n5. Hâlâ olursa GPU sürücüsünün 'Studio/Önerilen' sürümüne geç"),
+    (("0x00000019", "bad pool header"),
+     "🔴 MAVİ EKRAN 0x00000019 (BAD_POOL_HEADER)\nBellek havuzu bozuldu — sürücü/antivirüs/hile çakışması tipik sebeptir.\n\nÇÖZÜM:\n1. Antivirüsü kaldır (özellikle birden fazla antivirüs varsa!)\n2. Windows Bellek Tanılama çalıştır\n3. sfc /scannow\n4. Loader'ı yönetici olarak çalıştır\n5. Windows güncelle"),
+    (("0x0000003b", "system service exception"),
+     "🔴 MAVİ EKRAN 0x0000003B (SYSTEM_SERVICE_EXCEPTION)\nSistem hizmeti hata verdi. Ekran kartı sürücüsü veya hile sürücüsü genelde sorumlu.\n\nÇÖZÜM:\n1. GPU sürücüsünü DDU ile temiz kur\n2. Windows güncelle\n3. Loader'ı güncelle\n4. Güvenli mod testi yap (yazılım mı donanım mı öğren)\n5. sfc /scannow"),
+
+    # ---------- EKSİK DLL HATALARI ----------
+    (("msvcp140.dll", "vcruntime140.dll"),
+     "🔴 EKSİK DLL: MSVCP140.dll / VCRUNTIME140.dll\nBu kütüphaneler Visual C++ 2015-2022 paketinde bulunur. Loader'ın çalışması için şart!\n\nÇÖZÜM:\n1. Microsoft'un resmi sitesinden 'Visual C++ Redistributable 2015-2022' indir\n2. HEM x64 HEM x86 sürümünü kur (ikisi de lazım!)\n3. Bilgisayarı yeniden başlat\n4. Loader'ı tekrar çalıştır\n\n⚠️ DLL'leri internetten tek başına indirip System32'ye atma! Enfeksiyon riski var. Mutlaka resmi paketi kur."),
+    (("msvcr120.dll", "msvcr110.dll", "msvcr100.dll"),
+     "🔴 EKSİK DLL: MSVCR120/110/100.dll\nBunlar ESKİ Visual C++ paketlerinin kütüphaneleri (2010-2013). Eski tabanlı loader/oyunlarda çıkar.\n\nÇÖZÜM:\n1. Microsoft resmi sitesinden Visual C++ 2013 (x64+x86) kur → msvcr120 çözülür\n2. Visual C++ 2010 (x64+x86) kur → msvcr100 çözülür\n3. 2015-2022 paketini de kur (tüm ihtimaller için)\n4. Yeniden başlat\n\n💡 En garantisi: 'Visual C++ Redistributable Tüm Paket' derlemesi kurmak."),
+    (("d3dx9", "d3dx10", "d3dx11"),
+     "🔴 EKSİK: DirectX Kütüphaneleri (d3dx9/d3dx10/d3dx11)\nEski oyunlar ve bazı loader'lar DirectX 9/10/11 paketlerine ihtiyaç duyar.\n\nÇÖZÜM:\n1. Microsoft resmi 'DirectX End-User Runtime Web Installer'ı indir/kur\n2. Yeniden başlat\n3. Hâlâ olmazsa .NET 4.8 ve Visual C++ paketlerini de kur\n\n💡 Windows 10/11'de DirectX 12 kurulu ama ESKİ paketler ayrıca yüklenmelidir — en çok unutulan adım budur!"),
+    (("xinput1_3.dll", "xinput9_1_0.dll"),
+     "🔴 EKSİK DLL: XINPUT1_3.dll\nXbox kumanda/oyun kütüphanesi eksik. Genelde DirectX paketinde gelir.\n\nÇÖZÜM:\n1. DirectX End-User Runtime Web Installer kur\n2. Yeniden başlat\n3. Çözülmezse oyunu kopyala-yapıştır yeniden kurma, bütünlük doğrula\n4. Visual C++ x64+x86 paketlerini de kur"),
+    (("steam_api64.dll", "steam_api.dll"),
+     "🔴 EKSİK: steam_api64.dll / steam_api.dll\nSteam entegrasyonu için gereken dosya. Genelde oyun/loader kurulumu bozulmuştur veya antivirüs dosyayı yemiştir!\n\nÇÖZÜM:\n1. Antivirüs/Defender kaldırma geçmişini kontrol et (Windows Güvenliği → Koruma geçmişi → geri yükle)\n2. Steam'de oyun dosyalarının bütünlüğünü doğrula\n3. Loader/oyun kurulumunu yönetici olarak yeniden çalıştır\n4. Klasörü antivirüs istisnalarına ekle"),
+    (("vgui2.dll", "steam.dll", "engine.dll"),
+     "🔴 EKSİK: vgui2.dll / steam.dll / engine.dll (Source motoru)\nOyunun çekirdek dosyaları bozuk veya antivirüs tarafından silinmiş.\n\nÇÖZÜM:\n1. Steam → oyun → sağ tık → Özellikler → Yerel Dosyalar → Bütünlüğü doğrula\n2. Antivirüs kaldırma geçmişinden dosyaları geri yükle\n3. Klasörü istisnalara ekle, oyunu yeniden indir\n4. Loader kurulumunu yönetici olarak yap"),
+
+    # ---------- VAC / STEAM HATALARI ----------
+    (("vac authentication", "vac cannot verify", "vac doğrulayamıyor"),
+     "🔴 VAC AUTHENTICATION ERROR — NEDEN?\nSteam, oyun oturumunu doğrulayamadı. Genelde VAC kilitlenmesi, bozuk dosya veya ağ sorunudur.\n\nÇÖZÜM:\n1. Steam'i tamamen kapat (görev yöneticisinden steam.exe'yi sonlandır) ve yeniden başlat\n2. Steam → Ayarlar → İndirmeler → 'İndirme önbelleğini temizle'\n3. Oyun dosyalarının bütünlüğünü doğrula\n4. Kullanıcı adında TÜRKÇE karakter veya boşluk varsa değiştir (VAC bunu engeller!)\n5. VPN kullanıyorsan kapat\n6. Hile varsa oyunu AÇMADAN hile/loader'ı çalıştır, sırayı doğru kur: Steam açık → loader → oyun\n\n⚠️ VAC ban aldıysan bu hata farklıdır — o durumda Steam koruması hesabı kilitler, farklı hesap gerekir."),
+    (("vac ban", "banned", "vac kilitli", "secure session"),
+     "🔴 VAC BAN / GÜVENLİ OTURUM HATASI\nSteam, hesabını VAC korumasıyla işaretlemiş veya korumalı sunucuya giremiyorsun.\n\nÇÖZÜM:\n1. Önce gerçekten VAC ban mı aldın kontrol et: Steam → Profil → Hesapla ilgili detaylar\n2. VAC ban varsa hileli oyunların çoğu sunucusuna giremezsin — hile yapmadan yeni bir ana hesap aç\n3. 'Secure session' hatasıysa: Steam tam kapat → tekrar aç → bütünlük doğrula\n4. VPN kapat, saat dilimini doğrula\n5. Bozuk oyun dosyası varsa doğrula\n\n💡 Ana hesabında değerli eşya varsa hileyi o hesapta kullanma!"),
+    (("connection failed", "bağlantı başarısız", "sunucuya bağlanamadı"),
+     "🔴 BAĞLANTI HATASI — NEDEN?\nOyun/sunucuya bağlanılamadı. Hileler bazen VAC sunucu doğrulamasını engeller, ağ veya VPN sorunu da olabilir.\n\nÇÖZÜM:\n1. İnternet bağlantını kontrol et, modemi yeniden başlat\n2. VPN kullanıyorsan kapat (VAC VPN'i sevmez)\n3. Oyunu tamamen kapatıp loader'ı yeniden başlat\n4. Windows Güvenlik Duvarı → uygulamaya izin ver\n5. DNS değiştir: 8.8.8.8 / 8.8.4.4\n6. Loader güncel mi? Eski loader sunucuya bağlanamaz"),
+    (("incompatible build", "sürüm uyumsuz", "version mismatch"),
+     "🔴 SÜRÜM UYUMSUZLUĞU (Incompatible Build)\nOyunun güncellendi ama hile/loader eski kaldı — veya tam tersi. En yaygın hileden sonra gelen hatalardan!\n\nÇÖZÜM:\n1. Oyunu GÜNCELLEME (Steam otomatik günceller, güncel olmadığını düşünüyorsan bütünlüğü doğrula)\n2. Loader/hile için YENİ SÜRÜM bekleyen site/sürüm sayfasına bak — güncelleme yayınlandıysa indir\n3. Eski loader sürümünü tamamen sil (antivirüsün yedeklemiş olabileceği eski dosyaları da temizle)\n4. Yeniden indir ve kur\n\n⚠️ Oyun güncellemesinden SONRA hileler genelde bozulur — güncelleme gelince 1-2 gün yeni sürüm beklenir."),
+    (("failed to initialize", "başlatılamadı"),
+     "🔴 'FAILED TO INITIALIZE' — NEDEN?\nLoader/hile başlatma aşamasında takılıyor. Eksik kütüphane, antivirüs engeli veya sürücü uyumsuzluğu olabilir.\n\nÇÖZÜM:\n1. Visual C++ x64+x86 + .NET 4.8 + DirectX kur\n2. Loader'ı YÖNETİCİ olarak çalıştır\n3. Windows Defender gerçek zamanlı korumayı geçici kapat (aşağıdaki rehber)\n4. Windows güncelle\n5. Loader klasörünü C:Program Files'a kurma — masaüstüne ya da C:BigaCheat klasörüne kur\n6. Hâlâ olmazsa hata penceresinin TAM metnini yapıştır"),
+
+    # ---------- GÜVENLİK YAZILIMLARI (EN YAYGIN SORUN!) ----------
+    (("windows defender", "threat detected", "trojan", "win32/", "heur", "virüs bulundu", "virüs tespit", "tehdit", "quarantine", "karantina", "kaldırıldı"),
+     "🛡️ WINDOWS DEFENDER VİRÜS UYARISI — NEDEN?\nHile dosyaları, gerçek zararlı yazılımlarla aynı teknikleri kullandığı için Defender neredeyse her zaman 'Trojan' uyarısı verir ve dosyayı SİLER.\n\n📋 WINDOWS DEFENDER'I KAPATMA ADIMLARI:\n1. Windows Güvenliği → Virüs ve tehdit koruması\n2. 'Virüs ve tehdit koruması ayarları' → Ayarları yönet\n3. 'Gerçek zamanlı koruma' → KAPAT (kısa süreliğine)\n4. 'Bulut tabanlı koruma' → KAPAT\n5. 'Otomatik örnek gönderme' → KAPAT\n6. Windows Güvenliği → Uygulama ve tarayıcı denetimi → 'İtibara dayalı koruma ayarları' → hepsini KAPAT\n7. Loader'ı indir/KUR VE ÇALIŞTIR\n8. Çalıştıktan sonra korumayı açabilirsin\n\n📌 YETMEZSE (3. PARTİ ANTİVİRÜS):\n• Kaspersky/Avast/AVG/Bitdefender vb. varsa → Ayarlar → İstisnalar (exclusions) → loader klasörünü ve .exe dosyasını ekle\n• Bazı antivirüsler 'kapatmak yerine kaldır' der — iki antivirüs aynı anda olmamalı!\n\n💡 Defender dosyayı sildiyse: Windows Güvenliği → Koruma geçmişi → Öğe → Geri yükle → ardından klasörü istisnalara ekle. İNDİRME 'İzin verilen' yoksa VPN kullanıp tekrar indir."),
+    (("smart screen", "windows korudu", "windows'un akıllı ekranı", "yine de çalıştır", "tanınmayan uygulama"),
+     "🛡️ SMARTSCREEN UYARISI — NEDEN?\nWindows, 'tanınmayan' uygulamaları çalıştırmadan önce korkutur. Hile/loader dosyaları imzalı olmadığı için bu ekran çıkar.\n\nÇÖZÜM:\n1. Uyarı ekranında 'Yine de çalıştır' (More info → Run anyway)\n2. 'More info' / 'Daha fazla bilgi' yoksa: Sağ tık → Özellikler → 'Engellemeyi kaldır' (Unblock) işaretle → Uygula → OK\n3. Loader'ı YÖNETİCİ olarak çalıştır\n4. Uygulama ve tarayıcı denetimi → 'Windows uygulamaları için' → 'İtibara dayalı koruma' → KAPAT\n5. Defalarca engelliyorsa: Windows Güvenliği → Uygulama ve tarayıcı denetimi → Reputation-based protection → OFF"),
+    (("kaspersky", "avast", "avg", "bitdefender", "eset", "norton", "malwarebytes", "360 total", "güvenlik yazılımı", "antivirüs engelliyor"),
+     "🛡️ 3. PARTİ ANTİVİRÜS SORUNU — NEDEN?\nHile dosyaları antivirüslerin 'PUA/tehdit' listesine girer — bu sahte alarm olabilir, ama kendi sorumluluğundadır.\n\n📋 ÇÖZÜM (TÜM ANTİVİRÜSLER İÇİN GENEL):\n1. Ayarlar → İstisnalar/Exclusions/Allow list → loader klasörünü ekle (C:BigaCheat gibi ayrı klasör aç)\n2. .exe dosyasının kendisini de istisnaya ekle\n3. 'Gerçek zamanlı koruma'yı geçici kapat → loader'ı çalıştır → aç\n4. İKİ antivirüs birden kullanma! (Defender + Kaspersky aynı anda = çakışma)\n5. Hâlâ engelliyorsa tamamen kaldır ve yalnızca Windows Defender kullan\n\n⚠️ Dosya silindiyse antivirüsün karantinasından 'Geri yükle + İstisna ekle' yap.\n💡 Her zaman SİTE ÜZERİNDEKİ en güncel dosyayı indir — eski dosyaların imzası bilinen virüs olarak işaretlenir."),
+    (("gerçek zamanlı", "gercek zamanli", "realtime protection", "core isolation", "çekirdek izolasyonu", "memory integrity", "bellek bütünlüğü"),
+     "🛡️ GERÇEK ZAMANLI KORUMA / ÇEKİRDEK İZOLASYONU — NEDEN?\nWindows'un derin güvenlik katmanları hile sürücülerinin belleğe erişimini engeller. 'Bellek bütünlüğü' (Memory Integrity) açıksa çoğu hile açılmaz!\n\n📋 KAPATMA ADIMLARI:\n1. Windows Güvenliği → Cihaz güvenliği\n2. 'Çekirdek izolasyonu' → 'Bellek bütünlüğü' → KAPAT\n3. Bilgisayarı YENİDEN BAŞLAT (şart!)\n4. Ayarlar → Gizlilik ve güvenlik → Windows Güvenliği → Virüs ve tehdit koruması → Gerçek zamanlı koruma → KAPAT\n5. Loader'ı yönetici olarak çalıştır\n\n📌 Not: Bellek bütünlüğünü kapatınca Windows uyarı verir — normaldir, hile için kapatman gerekir."),
+    (("secure boot", "güvenli önyükleme", "tpm"),
+     "🔧 SECURE BOOT / TPM HATASI — NEDEN?\nHile sürücüleri imzasız olduğu için Secure Boot açıkken yüklenemez. Loader 'sürücü yüklenemedi' veriyorsa bu genelde sebeptir.\n\nÇÖZÜM:\n1. BIOS'a gir (bilgisayar açılırken DEL/F2/F10/F12)\n2. 'Secure Boot' → Disabled yap\n3. 'TPM' → Disabled yap (bazı hileler TPM'yi de bekler)\n4. Kaydet ve çık (F10 → Yes)\n5. Windows yeniden başlasın, loader'ı tekrar dene\n\n⚠️ Secure Boot'u kapattıktan sonra Windows Hello/bitlocker uyarısı normaldir. BitLocker şifreni yanında bulundur!"),
+
+    # ---------- LOADER / OYUN SORUNLARI ----------
+    (("loader açılmıyor", "loader açılmıyor", "çift tıklayınca açılmıyor", "hiçbir şey olmuyor", "kurulum başarısız"),
+     "🔴 LOADER AÇILMIYOR — NEDEN?\nAntivirüs dosyayı sessizce silmiş, eksik kütüphane veya izin sorunu olabilir.\n\nÇÖZÜM SIRASI:\n1. Defender/antivirüs karantinasını kontrol et (Koruma geçmişi → Geri yükle)\n2. Windows Defender gerçek zamanlı korumayı KAPAT (yukarıdaki rehber)\n3. Dosyaya sağ tık → Özellikler → 'Engellemeyi kaldır' → Uygula\n4. YÖNETİCİ olarak çalıştır\n5. Dosyayı C:Program Files'a değil, masaüstüne/ayrı klasöre koy\n6. Visual C++ x64+x86 + .NET 4.8 + DirectX kur\n7. Hâlâ açılmıyorsa: dosya bozuktur → SİTEDEN YENİDEN İNDİR\n\n💡 Çift tıklayınca HİÇBİR ŞEY olmuyorsa %90 antivirüs dosyayı yemiştir!"),
+    (("oyun açılmıyor", "cs2 açılmıyor", "cs go açılmıyor", "oyun kapandı", "crash", "çöktü", "çöküyor", "hata veriyor oyun"),
+     "🔴 OYUN AÇILMIYOR / CRASH — NEDEN?\nHile sürücüsü + oyun güncellemesi uyumsuzluğu, eksik kütüphane veya antivirüs müdahalesi.\n\nÇÖZÜM:\n1. Oyunu Steam'den doğrula: sağ tık → Özellikler → Yerel Dosyalar → Bütünlüğü doğrula\n2. Hile/loader'ı güncelle (oyun güncellendiyse hile bozulmuş olabilir!)\n3. Antivirüsü geçici kapat\n4. -novid -threads 8 gibi başlatma seçeneklerini temizle\n5. Ekran kartı sürücüsünü güncelle\n6. Oyun ayarlarını sıfırla: oyun klasöründeki config dosyalarını sil\n7. Crash kodunu/uyarı metnini yapıştır — tam analiz yapayım"),
+    (("hile çalışmıyor", "menu açılmıyor", "menu gelmiyor", "enjekte", "inject", "oyunda hile yok"),
+     "🔴 HİLE OYUNDA ÇALIŞMIYOR / MENÜ GELMİYOR\n\nÇÖZÜM SIRASI:\n1. Loader'ı OYUNU AÇMADAN ÖNCE çalıştır ve bekleyerek oyunu aç (sıra: loader → oyun)\n2. Windows Defender gerçek zamanlı korumayı KAPAT + bellek bütünlüğünü kapat (yukarıdaki rehber)\n3. Loader'ı YÖNETİCİ olarak çalıştır\n4. Hile sürümü oyun sürümüyle uyumlu mu? (oyun güncellendiyse hile güncellemesini bekle!)\n5. Menü tuşu hangisi kontrol et (genelde INSERT veya F10) — üst üste açılmış loader olabilir, görev yöneticisinden kapat\n6. Oyunu tam ekran DEĞİL 'pencere modu/borderless' yap — bazı hileler tam ekranda çalışmaz\n7. Hâlâ yok: hile dosyasını yeniden indir, önceki kurulumu tamamen temizle"),
+    (("fps düşük", "lag", "kasıyor", "takılıyor", "donuyor", "gecikme"),
+     "🐢 DÜŞÜK FPS / LAG — ÇÖZÜMLER:\n\n1. Oyun grafik ayarlarını düşür (shadows, textures, MSAA)\n2. Tam ekran yerine borderless dene\n3. Arka planda açık programları kapat (tarayıcı, Discord'u bile kapatabilirsin)\n4. NVIDIA denetim masası → 3D ayarlar → 'Güç yönetimi: Maksimum performans'\n5. FPS limitini kaldır: -fps_max 0 veya console'dan fps_max 300\n6. Driver güncelle (DDU temiz kurulum)\n7. Termal macun/fan kontrolü — aşırı ısınma FPS düşürür\n8. Hile menüsünün render/effects ayarlarını kapat\n\n💡 Çok eski PC'de düşük ayar + 1080p 'competitive' preset en iyisi."),
+    (("driver güncelle", "ekran kartı", "gpu sürücü", "sürücü hatası", "ddu"),
+     "🖥️ EKRAN KARTI SÜRÜCÜSÜ HATASI / GÜNCELLEME\nEski veya bozuk GPU sürücüsü hem oyun hem hile performansını öldürür.\n\n📋 DDU İLE TEMİZ KURULUM (EN TEMİZ YÖNTEM):\n1. DDU'yu (Display Driver Uninstaller) indir\n2. Güvenli Modda açıp mevcut sürücüyü tamamen sil\n3. Normal modda NVIDIA/AMD resmi sitesinden EN GÜNCEL sürücüyü kur\n4. 'Temiz kurulum' (Clean install) seçeneğini işaretle\n5. Yeniden başlat\n\nAlternatif basit yol: Aygıt Yöneticisi → Ekran bağdaştırıcıları → sağ tık → Sürücüyü güncelle → Otomatik ara.\n💡 Sürücüyü 'Studio' sürümlerine değil 'Game Ready' sürüme kur."),
+    (("directx", "dx11", "dx12", "direct x"),
+     "🎮 DIRECTX HATASI — NEDEN?\nOyun/loader DirectX 9/10/11/12 kütüphanelerinden birini bulamıyor veya eski sürüm kullanılıyor.\n\nÇÖZÜM:\n1. Microsoft resmi 'DirectX End-User Runtime Web Installer'ı kur (eski paketleri getirir)\n2. DirectX 12 zaten Windows 10/11'de var ama oyun ESKİ DirectX istiyorsa 1. adım şart\n3. Visual C++ x64+x86 kur\n4. Ekran kartı sürücüsünü güncelle\n5. Loader'ı yönetici olarak çalıştır\n\n⚠️ 'D3D11 hatası' veriyorsa GPU desteklemiyor olabilir — eski kartlarda DX12 modunu kapat."),
+    (("net framework", ".net 4", "dotnet"),
+     "🔧 .NET FRAMEWORK EKSİK — NEDEN?\nBazı loader'lar .NET 4.x gerektirir; eski Windows'ta kurulu değildir.\n\nÇÖZÜM:\n1. Microsoft resmi sitesinden .NET Framework 4.8'i indir kur\n2. Yeniden başlat\n3. Loader'ı tekrar çalıştır\n\n💡 Windows 10/11 çoğu sürümde 4.8 kuruludur; sorun varsa 'Windows özellikleri'nden .NET 3.5'i de etkinleştir (eski loader'lar için)."),
+    (("windows güncelle", "windows güncel değil", "güncelleme gerekli", "build eski"),
+     "🔄 WINDOWS GÜNCELLEMESİ GEREKİYOR\nHileler genelde belirli bir Windows sürümünde test edilir; çok eski veya çok yeni sürüm sorun çıkarır.\n\nÇÖZÜM:\n1. Ayarlar → Windows Update → Güncelleştirmeleri denetle → kur ve yeniden başlat\n2. Hile sürüm notlarına bak: hangi Windows 10/11 sürümünü destekliyor?\n3. Loader'ı güncelle\n4. Windows Insider (dev) sürümündeysen → kararlı sürüme geç (Insider genelde hilelerde patlar!)\n\n⚠️ Yeni Windows güncellemesi hileyi bozabilir — güncelleme geldiyse hile güncellemesini bekle."),
+    (("sfc", "scannow", "dism", "sistem dosyası bozuk", "sistem onarım"),
+     "🔧 SİSTEM DOSYALARI BOZUK — ONARIM REHBERİ\nWindows dosyaları bozuksa her şey kafadan atar. Şu sırayla onar:\n\n1. cmd'yi YÖNETİCİ olarak aç (Başlat → 'cmd' → sağ tık → Yönetici)\n2. sfc /scannow yaz → tamamlanmasını bekle (10-30 dk)\n3. Sonra: DISM /Online /Cleanup-Image /RestoreHealth\n4. Yeniden başlat\n5. Hâlâ sorun varsa: chkdsk C: /f → 'Evet' → yeniden başlat\n\n💡 SFC 'bozuk dosya bulamadı' derse ama sorun sürüyorsa sorun sürücüde/antivirüste demektir."),
+    (("yönetici olarak", "yönetici modu", "administrator", "admin olarak"),
+     "🔧 'YÖNETİCİ OLARAK ÇALIŞTIR' — NEDEN?\nHile/loader dosyaları Windows sistemine erişim ister; normal modda Windows izin vermez ve sessizce hata verir.\n\n📋 DOĞRU YÖNTEM:\n1. Loader dosyasına SAĞ TIKLA\n2. 'Yönetici olarak çalıştır' seç (çift tık YETERSİZ!)\n3. UAC penceresi çıkarsa 'Evet' de\n4. Her zaman böyle açılması için: sağ tık → Özellikler → Uyumluluk → 'Bu programı yönetici olarak çalıştır' işaretle → Uygula\n\n💡 Oyunu da Steam üzerinden değil, oyunun exe'sini yönetici olarak çalıştırmak bazen gerekir."),
+    (("izin yok", "klasör izni", "program files", "masaüstüne kur", "c: sürücüsü"),
+     "📁 KURULUM / KLASÖR İZİNLERİ — NEDEN?\nProgram Files, Windows klasörü gibi korumalı konumlara kurulan hileler sürekli izin hatası verir.\n\n📋 DOĞRU KURULUM:\n1. C:\\Program Files İÇİNE KURMA! Bunun yerine: C:\\BigaCheat veya masaüstünde klasör aç\n2. Klasör adında TÜRKÇE karakter ve boşluk olmasın (BigaCheat, Loader gibi)\n3. Klasöre sağ tık → Özellikler → Güvenlik → 'Tam Denetim'\n4. Antivirüs istisnalarına bu klasörü ekle\n5. Loader'ı o klasörden yönetici olarak çalıştır\n\n💡 Windows'un 'daha güvenli' diye klasörü koruması hile dosyalarını silmesine yol açar."),
+    (("vpn", "erişim engellendi", "ülke engeli", "siteye giremiyorum", "indirme engelli"),
+     "🌍 VPN / ERİŞİM SORUNU\nBazı ülkelerde oyun hile siteleri erişime kapatılır; indirme engellenir.\n\nÇÖZÜM:\n1. Ücretsiz VPN kur (ProtonVPN, Windscribe vb.) → Türkiye/ABD/Almanya sunucusuna bağlan\n2. Siteye ve indirmeye o VPN ile gir\n3. İndirdikten SONRA VPN'i kapatabilirsin (loader'ın VPN istemediğini kontrol et)\n4. Bazı hileler VAC koruması için VPN kapalı ister — oyun oynarken VPN'i kapat\n5. DNS değiştir: 8.8.8.8 / 8.8.4.4\n\n⚠️ Sunucu 'too busy' veriyorsa VPN ile farklı ülke dene veya birkaç saat bekle."),
+    (("steam bütünlük", "bütünlüğü doğrula", "bütünlük", "doğrula", "verify integrity", "oyun dosyaları bozuk"),
+     "🔧 OYUN DOSYALARI BOZUK — BÜTÜNLÜK DOĞRULAMA\nOyun dosyaları eksik/bozuksa hile de çalışmaz. Doğrulama şart:\n\n📋 STEAM'DE DOĞRULAMA:\n1. Steam → Kütüphane → oyun → sağ tık → Özellikler\n2. 'Yerel Dosyalar' sekmesi\n3. 'Oyun dosyalarının bütünlüğünü doğrula' → bekle\n4. Bozuk dosya bulursa Steam otomatik indirir\n5. Yeniden başlat, loader'ı yönetici olarak aç\n\n💡 Non-Steam (korsan) oyunda isen: dosyaları temiz kaynaktan yeniden kur, hile için doğru oyun SÜRÜMÜNÜ (build) kullandığından emin ol."),
+    (("only one instance", "tek örnek", "zaten çalışıyor", "ikinci loader", "çift loader"),
+     "🔴 'ONLY ONE INSTANCE' / ÇİFT LOADER HATASI\nLoader zaten arka planda açık olduğu için ikinci kez başlatamıyorsun.\n\nÇÖZÜM:\n1. Ctrl+Shift+Esc → Görev Yöneticisi'ni aç\n2. 'Ayrıntılar' sekmesinde loader adını (ör. loader.exe) bul\n3. Sağ tık → Görevi sonlandır\n4. Tekrar çalıştır — ama BU KEZ tek kopyayla!\n\n💡 Loader görünmüyor ama çalışıyor olabilir — sistem tepsisine (sağ alttaki ^) bak."),
+    (("runtime error", "çalışma zamanı hatası", "runtime hatası"),
+     "🔴 RUNTIME ERROR — NEDEN?\nProgram çalışırken kütüphane/sürücü uyumsuzluğu yaşadı. Genelde eksik Visual C++/ .NET veya antivirüs müdahalesi.\n\nÇÖZÜM:\n1. Visual C++ 2015-2022 x64+x86 kur (yeniden kur!)\n2. .NET 4.8 kur\n3. Windows güncelle\n4. Defender'ı geçici kapat\n5. Loader'ı yönetici olarak çalıştır\n6. Hatanın TAM metnini yapıştır — satır numarası veriyorsa daha iyi analiz ederim"),
+    (("memory error", "bellek hatası", "out of memory", "yetersiz bellek"),
+     "🔴 BELLEK (MEMORY) HATASI — NEDEN?\nRAM yetersiz, hata sızıntısı veya antivirüs+hile bellek çakışması.\n\nÇÖZÜM:\n1. Arka plan programlarını kapat (tarayıcı sekmeleri, Discord)\n2. RAM'i yükselt veya takas dosyasını büyüt: Ayarlar → Sistem → Depolama → Gelişmiş → Sanal bellek\n3. Antivirüsü kaldır — RAM'i en çok o yer\n4. Loader'ı yeniden başlat\n5. 4GB'den az RAM'li sistemde zor olur — oyunu düşük ayarda aç"),
+    (("windows 7", "windows 8", "windows 7'de", "eski windows", "desteklenmiyor işletim"),
+     "⚠️ ESKİ WINDOWS SÜRÜMÜ — NEDEN?\nHileler genelde Windows 10/11 64-bit için derlenir. Windows 7/8'de çalışmayabilir.\n\nÇÖZÜM:\n1. Hile sayfasındaki GEREKSİNİMLERİ kontrol et (hangi Windows destekleniyor)\n2. Windows 10/11 kurulumu yap (64-bit!)\n3. Windows 7'de kalmak istiyorsan eski sürüm hile ara — ama güncel oyunla çalışmaz\n\n💡 '64-bit gerekli' uyarısı alıyorsan işletim sistemini 64-bit'e geçirmen şart."),
+    (("oyun çok yavaş", "yükleme uzun", "açılış yavaş", "donma oyun", "mavi ekran alıyorum", "mavi ekran veriyor"),
+     "🔧 GENEL PERFORMANS / MAVİ EKRAN SORUNU\nHile + oyun + eski sistem üçlüsü performansı öldürür. Sıralı çözüm:\n\n1. Antivirüsü KALDIR (temsilci değil, komple) — en çok kasmayı o yapar\n2. Windows güncelle + sfc /scannow\n3. GPU sürücüsünü DDU ile temiz kur\n4. Oyun ayarlarını düşür, borderless yap\n5. RAM'i kontrol et (Bellek tanılama) — mavi ekran RAM'sizlikten de olur\n6. Hile menüsü efektlerini kapat\n7. SSHD/HDD yerine SSD kullan — oyunu SSD'ye taşı\n\n💡 Mavi ekran devam ederse yukarıdaki BSOD kodunu (0x...) yapıştır, tam analiz edeyim."),
+    (("sürücü imzası", "test mode", "test modu", "driver signature", "imzasız sürücü"),
+     "🔴 İMZASIZ SÜRÜCÜ / TEST MODU — NEDEN?\nHile sürücüleri Windows imzalı olmadığı için 'imzasız sürücü yüklenemedi' hatası verir.\n\nÇÖZÜM:\n1. BIOS'ta Secure Boot'u KAPAT (en kritik adım!)\n2. Windows Test Mode'u aç: cmd (Yönetici) → bcdedit /set testsigning on → yeniden başlat\n3. Sağ altta 'Test Mode' yazısı çıkar — normaldir\n4. Loader'ı yönetici olarak çalıştır\n5. Tekrar kapatmak için: bcdedit /set testsigning off\n\n⚠️ Test Mode'da kalma — işin bitince kapat. Ayrıca Windows Update 'imzasız sürücü' uyarısı verir, görmezden gel."),
+    (("yeni güncelleme sonrası", "güncellemeden sonra bozuldu", "hile bozuldu", "oyun güncellendi hile"),
+     "⚠️ GÜNCELLEME SONRASI HİLE BOZULDU — NEDEN?\nOyun veya Windows güncellenince hile sürücüsü/eski sürüm çalışmayı bırakır. Bu ÇOK NORMAL ve her hilede olur!\n\nÇÖZÜM:\n1. SİTEDEN yeni hile sürümünü kontrol et — güncelleme genelde 1-3 gün içinde gelir\n2. Bu sürede hileyi çalıştırmaya ÇALIŞMA (zarar verme riski: ban/crash)\n3. Windows güncellemesi geldiyse ve hile bozulduysa: güncellemeyi geri almayı DENE (Ayarlar → Windows Update → Güncelleme geçmişi → Kaldır)\n4. Loader eski sürümüyse güncel sürümü indir\n5. Steam'de 'otomatik güncelleme'yi kapatıp oyun sürümünü sabitleyenler de var — ama riskli, onaylı çözüm güncellemeyi beklemek\n\n💡 Siteyi takip et — yeni sürüm yayınlanınca haber verilir."),
+    (("virüs mü", "zararlı mı", "güvenli mi", "riskli mi", "bulaşır mı"),
+     "🛡️ 'VİRÜS MÜ?' — DÜRÜST CEVAP\nHile dosyaları, yapıları gereği antivirüsler tarafından neredeyse HER ZAMAN zararlı olarak işaretlenir ('Trojan/Heur' gibi). Bu her hile sitesinde böyledir.\n\nKENDİNİ KORUMAK İÇİN:\n1. Sadece BİLİNEN ve GÜVENİLEN kaynaktan indir (bizim site gibi) — 'ücretsiz hack indir' siteleri dosyana zararlı bulaştırır!\n2. Dosyayı siteden indirdikten sonra SHA/zip şifresi doğrulaması varsa kullan\n3. Loader kullanıcı adın/şifreni İSTEMEZDİ — isteyen siteye dosyanı VERME\n4. Bilgisayarında önemli dosyalar varsa yedekle\n5. Antivirüs uyarısı görünce 'bu hile dosyası' dediğinden emin ol — bazen gerçek virüs de geçebilir\n\n⚠️ Garantisi olmaz; bilgisayarına yazılım kurmanın riski her zaman vardır. Bilinçli kullan."),
+    (("ban yedim", "banlandım", "hesabım banlandı", "oyundan ban", "steam ban"),
+     "🚫 BAN YEDİM — NE YAPMALIYIM?\nHile kullanımı oyun kurallarına aykırıdır; VAC/oyun koruması yakalayabilir.\n\nDÜRÜST REHBER:\n1. VAC ban → Steam hesabında hileli oyunun sunucularına ömür boyu kapalı — bu geri alınmaz\n2. Oyun içi ban → geliştirici kararı, itiraz edilebilir ama nadiren kabul edilir\n3. YENİ HESAP açabilirsin ama aynı IP/PC'den tekrar hile yaparsan yeni hesap da banlanabilir\n4. Ban riskini azaltmak için: hileyi sadece ANTRENMAN sunucularında/bot maçlarında kullan, rekabetçi maçlarda kullanma\n5. Hile açıkken ekran görüntüsü/paylaşım yapma (kanıt oluşur)\n\n⚠️ 'Ban kaldırma' vaadiyle para isteyen sitelere itibar etme — dolandırıcılıktır. Ben kural tabanlı bir botum, ban kaldıramam."),
+    (("kod ne", "kod nereden", "lisans anahtarı", "serial", "key istiyor", "aktivasyon kodu"),
+     "🔑 LOADER KOD / AKTİVASYON\nLoader bazen lisans/aktivasyon kodu ister.\n\nÇÖZÜM:\n1. Kod, PREMIUM satın aldığında hesabına otomatik tanımlanır\n2. Sitede 'Profilim' → satın aldıkların bölümünden kodunu görüntüle\n3. Kod yoksa/çalışmıyorsa: site üzerinden yöneticiye yaz — kod üretimi insan eliyle\n4. Kod paylaşımı yapma (tek kullanımlık olabilir)\n\n💡 Kod doğrulama internet gerektirir — loader internete bağlanamıyorsa ağ/firewall sorunu var demektir."),
+]
+
+# Kullanıcı uzun bir hata metni yapıştırıp hiçbir kurala takılmazsa genel analiz:
+BOT_ERROR_GENERIC = ("🔍 HATA METNİ ANALİZİ — hata kodunu tam olarak bulamadım ama genel çözüm rehberi:\n\n"
+                     "1. 🛡️ ANTİVİRÜS: Windows Defender gerçek zamanlı koruma + çekirdek izolasyonu/bellek bütünlüğünü KAPAT (rehber için 'defender' yaz)\n"
+                     "2. 📦 KÜTÜPHANELER: Visual C++ 2015-2022 (x64+x86) + .NET Framework 4.8 + DirectX kur\n"
+                     "3. 🛠️ LOADER: yönetici olarak çalıştır, özelliklerden 'Engellemeyi kaldır', C:Program Files DIŞINA kur\n"
+                     "4. 🔄 GÜNCELLEME: Windows'u güncelle, loader'ın en güncel sürümünü kullan\n"
+                     "5. 🔧 SİSTEM: cmd (Yönetici) → sfc /scannow\n"
+                     "6. 💡 OYUN: Steam'den bütünlük doğrula, oyun+hile sürüm uyumu kontrol et\n\n"
+                     "Hata penceresindeki KODU (0x...) veya ilk satırı buraya yaz — tam analiz edeyim! 🎯")
 
 
 def bot_reply(msg: str) -> str:
@@ -285,18 +427,39 @@ def bot_reply(msg: str) -> str:
         return s.lower().replace("ı", "i").replace("ğ", "g").replace("ü", "u").replace("ş", "s").replace("ö", "o").replace("ç", "c").replace("'", " ").replace("?", " ").replace("!", " ")
     nm = norm(msg)
     words = [w for w in nm.split() if len(w) > 1]
-    best_score = 0
-    best_reply = ""
-    for keywords, reply in BOT_RULES:
-        score = 0
+
+    def score(keywords: tuple[str, ...]) -> int:
+        s = 0
         for k in keywords:
             nk = norm(k)
             if nk in nm:
-                score += 2
+                s += 2
             elif any(nk in w for w in words):
-                score += 1
-        if score > best_score:
-            best_score = score
+                s += 1
+        return s
+
+    # 1) HATA VERİTABANI (öncelikli)
+    best_error = 0
+    best_error_reply = ""
+    for keywords, reply in BOT_ERRORS:
+        s = score(keywords)
+        if s > best_error:
+            best_error = s
+            best_error_reply = reply
+    if best_error > 0:
+        return best_error_reply
+
+    # 2) Uzun bir metin yapıştırıldı ama eşleşme yok -> genel analiz
+    if len(msg) > 40 and any(ch.isdigit() or ch in "0x._-" for ch in msg):
+        return BOT_ERROR_GENERIC
+
+    # 3) SİTE KURALLARI
+    best_score = 0
+    best_reply = ""
+    for keywords, reply in BOT_RULES:
+        s = score(keywords)
+        if s > best_score:
+            best_score = s
             best_reply = reply
     return best_reply if best_score > 0 else BOT_FALLBACK
 
