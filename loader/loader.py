@@ -143,21 +143,21 @@ def cleanup_after_exit(extract_dir, temp_dir):
 
 
 class LoaderApp:
-    BG = "#070b12"
-    BG2 = "#0c1320"
-    PANEL = "#111a29"
-    CARD = "#101a2a"
-    CARD2 = "#1a1400"
+    BG = "#0a0e16"
+    BG2 = "#0e1523"
+    PANEL = "#121a2b"
+    CARD = "#0f1728"
+    CARD2 = "#241a05"
     GOLD = "#ffd700"
     GOLD_DIM = "#8a6d1f"
     TEXT = "#e6edf5"
     MUTED = "#8fa3b8"
-    ACCENT = "#65d9ff"
+    ACCENT = "#5aa9e6"
 
     def __init__(self, root):
         self.root = root
         root.title(APP_NAME)
-        root.geometry("480x660")
+        root.geometry("480x680")
         root.resizable(False, False)
         root.configure(bg=self.BG)
 
@@ -177,27 +177,30 @@ class LoaderApp:
             pass
 
         container = tk.Frame(root, bg=self.BG)
-        container.pack(fill="both", expand=True, padx=30, pady=22)
+        container.pack(fill="both", expand=True, padx=30, pady=20)
 
-        title = tk.Label(container, text="BIGA CHEAT", fg=self.GOLD, bg=self.BG, font=("Segoe UI", 26, "bold"))
+        title = tk.Label(container, text="BIGA CHEAT", fg=self.GOLD, bg=self.BG, font=("Segoe UI", 28, "bold"))
         title.pack(pady=(0, 0))
         tk.Frame(container, bg=self.GOLD_DIM, height=1).pack(fill="x", pady=(4, 8))
-        sub = tk.Label(container, text="PREMIUM LOADER", fg=self.MUTED, bg=self.BG, font=("Segoe UI", 10))
+        sub = tk.Label(container, text="PREMIUM CS2 LOADER", fg=self.MUTED, bg=self.BG, font=("Segoe UI", 10))
         sub.pack(pady=(0, 2))
 
         self.user_label = tk.Label(container, text="KULLANICI ADI", fg=self.MUTED, bg=self.BG, font=("Segoe UI", 9, "bold"))
-        self.user_label.pack(anchor="w", pady=(18, 4))
+        self.user_label.pack(anchor="w", pady=(16, 4))
         self.username = tk.Entry(container, bg=self.PANEL, fg="white", insertbackground=self.GOLD, relief="flat", highlightthickness=1, highlightbackground="#2a3a4d", highlightcolor=self.GOLD, font=("Segoe UI", 12))
         self.username.pack(fill="x", ipady=7)
 
         self.pass_label = tk.Label(container, text="ŞİFRE", fg=self.MUTED, bg=self.BG, font=("Segoe UI", 9, "bold"))
-        self.pass_label.pack(anchor="w", pady=(14, 4))
+        self.pass_label.pack(anchor="w", pady=(12, 4))
         self.password = tk.Entry(container, bg=self.PANEL, fg="white", insertbackground=self.GOLD, relief="flat", show="*", highlightthickness=1, highlightbackground="#2a3a4d", highlightcolor=self.GOLD, font=("Segoe UI", 12))
         self.password.pack(fill="x", ipady=7)
         self.password.bind("<Return>", lambda _e: self.login())
 
         self.login_btn = tk.Button(container, text="GİRİŞ YAP", command=self.login, bg=self.GOLD, fg="#0a0f16", activebackground="#ffe44d", activeforeground="#0a0f16", relief="flat", font=("Segoe UI", 12, "bold"), cursor="hand2")
-        self.login_btn.pack(fill="x", ipady=10, pady=(18, 0))
+        self.login_btn.pack(fill="x", ipady=10, pady=(16, 0))
+
+        self.welcome = tk.Label(container, text="", fg=self.GOLD, bg=self.BG, font=("Segoe UI", 11, "bold"))
+        self.welcome.pack_forget()
 
         self.tab_frame = tk.Frame(container, bg=self.BG)
         self.tab_btn_free = tk.Button(
@@ -225,17 +228,17 @@ class LoaderApp:
         self.start_btn.pack_forget()
 
         self.status = tk.Label(container, text="Hazır", fg=self.ACCENT, bg=self.BG, font=("Segoe UI", 10), wraplength=420, justify="left")
-        self.status.pack(fill="x", pady=(18, 0))
+        self.status.pack(fill="x", pady=(16, 0))
 
         self.progress = ttk.Progressbar(container, mode="indeterminate", style="Loader.Horizontal.TProgressbar")
         self.progress.pack(fill="x", pady=(12, 0))
         self.progress.pack_forget()
 
         footer = tk.Frame(container, bg=self.BG)
-        footer.pack(fill="x", side="bottom", pady=(14, 0))
+        footer.pack(fill="x", side="bottom", pady=(12, 0))
         self.info = tk.Label(footer, text=f"BigaCheat Loader v{VERSION}", fg="#5b7085", bg=self.BG, font=("Segoe UI", 9))
         self.info.pack(side="left")
-        tk.Label(footer, text="TÜM HAKLARI SAKLIDIR", fg="#3d4f63", bg=self.BG, font=("Segoe UI", 8)).pack(side="right")
+        tk.Label(footer, text="© 2026 — TÜM HAKLARI SAKLIDIR", fg="#3d4f63", bg=self.BG, font=("Segoe UI", 8)).pack(side="right")
 
     def set_status(self, text, color="#65d9ff"):
         self.status.config(text=text, fg=color)
@@ -258,6 +261,7 @@ class LoaderApp:
     def update_tabs(self):
         if not getattr(self, "logged_in", False):
             return
+        self.welcome.pack(anchor="w", pady=(14, 0))
         self.tab_frame.pack(fill="x", pady=(14, 0))
         if not getattr(self, "selected", None):
             self.selected = "paid" if getattr(self, "premium", False) else "free"
@@ -326,10 +330,13 @@ class LoaderApp:
             self.premium = bool(premium)
             self.until = int(until or 0)
             self.logged_in = True
+            self.username_text = username
             days = max(0, (self.until - int(time.time())) // 86400) if self.until else 0
             if self.premium:
-                self.set_status(f"Giriş başarılı — premium üyeliğin aktif, kalan süre: {days} gün. Bir seçim yap.", "#7cf29c")
+                self.welcome.config(text=f"Hoş geldin {username}  •  Premium: {days} gün")
+                self.set_status("Giriş başarılı — bir seçim yap.", "#7cf29c")
             else:
+                self.welcome.config(text=f"Hoş geldin {username}  •  Ücretsiz üyelik")
                 self.set_status("Giriş başarılı — ücretsiz sürümü indirebilirsin.", "#7cf29c")
             self.update_tabs()
         except RuntimeError as exc:
@@ -341,17 +348,6 @@ class LoaderApp:
         finally:
             if not updating:
                 self.set_loading(False)
-
-    def loader_dir(self):
-        if getattr(sys, "frozen", False) and sys.executable:
-            base = os.path.dirname(os.path.abspath(sys.executable))
-            if os.access(base, os.W_OK):
-                return base
-        home = os.path.expanduser("~")
-        downloads = os.path.join(home, "Downloads")
-        if os.path.isdir(downloads) and os.access(downloads, os.W_OK):
-            return downloads
-        return tempfile.gettempdir()
 
     def start_download(self, dl_type):
         if dl_type == "paid" and not getattr(self, "premium", False):
@@ -395,21 +391,20 @@ class LoaderApp:
                     msg += f"\nKalan premium süren: {max(0, (self.until - int(time.time())) // 86400)} gün."
                 msg += "\n\nDosya paylaşımı yasaktır — arşiv senin adına kayıtlı."
             else:
-                dest_dir = self.loader_dir()
-                os.makedirs(dest_dir, exist_ok=True)
-                free_path = os.path.join(dest_dir, FREE_EXE_NAME)
+                free_path = os.path.join(temp_dir, FREE_EXE_NAME)
                 request_download(self.token, free_path, "free")
                 self.set_status("Ücretsiz sürüm başlatılıyor...")
                 if os.name == "nt":
                     try:
                         import ctypes
-                        ctypes.windll.shell32.ShellExecuteW(None, "runas", free_path, None, dest_dir, 1)
+                        ctypes.windll.shell32.ShellExecuteW(None, "runas", free_path, None, temp_dir, 1)
                     except Exception:
-                        subprocess.Popen([free_path], cwd=dest_dir)
+                        subprocess.Popen([free_path], cwd=temp_dir)
                 else:
-                    subprocess.Popen([free_path], cwd=dest_dir)
-                temp_dir = None
-                msg = f"Giriş başarılı.\nÜcretsiz sürüm başlatıldı.\nDosya kalıcı olarak kaydedildi:\n{dest_dir}\n\nYüksek avantajlar için Ücretli Hile'yi deneyebilirsin."
+                    subprocess.Popen([free_path], cwd=temp_dir)
+                cleanup_after_exit(temp_dir, temp_dir)
+                temp_dir = None  # temizlik thread'e devredildi
+                msg = "Giriş başarılı.\nÜcretsiz sürüm launcher üzerinden başlatıldı.\n\nYüksek avantajlar için Ücretli Hile'yi deneyebilirsin."
             self.set_status("Tamamlandı!", "#7cf29c")
             messagebox.showinfo(APP_NAME, msg)
         except RuntimeError as exc:
