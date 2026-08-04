@@ -942,7 +942,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/":
             status = "Hesabınla giriş yaparak sürümü indirebilirsin." if not user else "Hesabın hazır. Güncel sürümü aşağıdan indirebilirsin."
             body = f"""<section class="hero"><img class="hero-logo" src="/static/logo.png" alt="Biga Cheat logo" width="140" height="140"><div class="eyebrow">CS2 İÇİN ÖZEL SÜRÜM ALANI</div><h1>CS2 için Biga Cheat<span>.</span></h1><p class="lead">Temiz, hızlı ve tek yerden yönetilen sürüm ve proje alanı.</p>
-<div class="hero-actions">{'<a class="button primary" href="/download">Sürümü indir</a>' if user else '<a class="button primary" href="/register">Ücretsiz hesap oluştur</a><a class="button ghost" href="/login">Giriş yap</a>'}</div></section>
+<div class="hero-actions">{'<a class="button primary" href="/download">Loader’ı indir</a>' if user else '<a class="button primary" href="/register">Ücretsiz hesap oluştur</a><a class="button ghost" href="/login">Giriş yap</a>'}</div></section>
 <section class="panel-grid"><article class="panel"><span class="panel-icon">01</span><h2>Tek hesap</h2><p>Kayıt ol, giriş yap ve indirme alanına güvenli şekilde eriş.</p></article><article class="panel"><span class="panel-icon">02</span><h2>Güncel dosya</h2><p>Yayınlanan sürüm tek bir indirme bağlantısından sunulur.</p></article><article class="panel"><span class="panel-icon">03</span><h2>Projeler</h2><p>Projeler bölümünde kendi arşivini paylaş ve topluluktan keşfet.</p></article></section><p class="status">{status}</p>"""
             with db() as connection:
                 latest_updates = connection.execute("SELECT title, body, tag, created_at FROM updates ORDER BY created_at DESC LIMIT 2").fetchall()
@@ -1113,21 +1113,21 @@ class Handler(BaseHTTPRequestHandler):
             if not user:
                 self.redirect("/login")
                 return
-            if not DOWNLOAD_PATH.is_file():
-                self.send_html(page("Dosya yok", '<section class="auth-card"><h1>Dosya hazır değil</h1><p class="muted">Yönetici henüz bir sürüm yüklemedi.</p></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
+            if not LOADER_PATH.is_file():
+                self.send_html(page("Dosya yok", '<section class="auth-card"><h1>Loader hazır değil</h1><p class="muted">Yönetici henüz loader yüklemedi.</p></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
                 return
-            size = DOWNLOAD_PATH.stat().st_size
+            size = LOADER_PATH.stat().st_size
             self.send_response(200)
             self.send_header("Content-Type", "application/octet-stream")
             self.send_header("Content-Length", str(size))
-            self.send_header("Content-Disposition", 'attachment; filename="Biga-Cheat-Cs2.exe"')
+            self.send_header("Content-Disposition", 'attachment; filename="BigaCheat-Loader.exe"')
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("Referrer-Policy", "same-origin")
             if COOKIE_SECURE:
                 self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
             self.end_headers()
-            with DOWNLOAD_PATH.open("rb") as file:
+            with LOADER_PATH.open("rb") as file:
                 while chunk := file.read(1024 * 1024):
                     self.wfile.write(chunk)
         elif path == "/projects":
@@ -1854,22 +1854,43 @@ class Handler(BaseHTTPRequestHandler):
                 time.sleep(1.0)
                 self.send_json({"ok": False, "error": "kimlik_dogrulanamadi"}, 401)
                 return
-            if not self.is_user_premium(row["id"]):
-                self.send_json({"ok": False, "error": "premium_gerekli", "premium": False})
-                return
+            is_prem = self.is_user_premium(row["id"])
             token = loader_token_value(row["id"])
-            expiry = self.premium_expiry(row["id"])
+            expiry = self.premium_expiry(row["id"]) if is_prem else 0
             log_event(f"[LOADER] '{row['username']}' loader'a giriş yaptı.")
-            self.send_json({"ok": True, "token": token, "premium": True, "premium_until": expiry, "username": row["username"]})
+            self.send_json({"ok": True, "token": token, "premium": is_prem, "premium_until": expiry, "username": row["username"]})
         elif path == "/api/loader/download":
             token = fields.get("token", "").strip()
+            dl_type = fields.get("type", "paid").strip().lower()
             user_id = verify_loader_token(token)
             if not user_id:
                 self.send_json({"ok": False, "error": "token_gecersiz"}, 401)
                 return
             with db() as connection:
                 row = connection.execute("SELECT username FROM users WHERE id=?", (user_id,)).fetchone()
-            if not row or not self.is_user_premium(user_id):
+            if not row:
+                self.send_json({"ok": False, "error": "kullanici_yok"}, 404)
+                return
+            if dl_type == "free":
+                if not DOWNLOAD_PATH.is_file():
+                    self.send_json({"ok": False, "error": "icerik_yok"}, 404)
+                    return
+                log_event(f"[LOADER] '{row['username']}' ücretsiz sürümü loader'dan indirdi.")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Content-Length", str(DOWNLOAD_PATH.stat().st_size))
+                self.send_header("Content-Disposition", 'attachment; filename="Biga Cheat-Cs2-Modified.exe"')
+                self.send_header("X-Frame-Options", "DENY")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Referrer-Policy", "same-origin")
+                if COOKIE_SECURE:
+                    self.send_header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+                self.end_headers()
+                with DOWNLOAD_PATH.open("rb") as file:
+                    while chunk := file.read(1024 * 1024):
+                        self.wfile.write(chunk)
+                return
+            if not self.is_user_premium(user_id):
                 self.send_json({"ok": False, "error": "premium_gerekli"}, 403)
                 return
             files = []

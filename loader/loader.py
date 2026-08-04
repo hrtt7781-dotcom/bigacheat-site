@@ -1,11 +1,13 @@
 """
 Biga Cheat Loader
 
-Kullanıcı site hesabıyla (kullanıcı adı + şifre) giriş yapar,
-premium doğrulaması yapılır ve kişiye özel filigranlı premium paket
-indirilip otomatik olarak açılır.
+Kullanıcı site hesabıyla (kullanıcı adı + şifre) giriş yapar; premium
+durumuna göre "Ücretsiz Hile" veya "Ücretli Hile" (kişiye özel filigranlı
+paket) seçeneklerini sunar ve seçilen içeriği indirip çalıştırır.
 
 Özellikler:
+  - Site hesabıyla giriş (username + password)
+  - Ücretsiz Hile / Ücretli Hile iki sekme (premium şartı otomatik)
   - Kalan premium gün sayısını gösterir
   - Otomatik güncelleme kontrolü (site /api/loader/version ile)
   - İndirilen geçici dosyaları temizler (injector kapandıktan sonra)
@@ -78,17 +80,29 @@ def request_login(username, password):
         raise RuntimeError("Sunucudan geçersiz yanıt geldi.")
     if status != 200 or not data.get("ok"):
         err = data.get("error", "bilinmeyen hata")
-        raise RuntimeError(f"Giriş başarısız ({err}). Kullanıcı adı/şifre hatalı veya premium erişimin yok.")
-    return data.get("token"), int(data.get("premium_until", 0) or 0)
+        raise RuntimeError(f"Giriş başarısız ({err}). Kullanıcı adı/şifre hatalı.")
+    return data.get("token"), bool(data.get("premium")), int(data.get("premium_until", 0) or 0)
 
 
-def request_download(token, dest_path):
-    req = urllib.request.Request(BASE_URL + "/api/loader/download", data=json.dumps({"token": token}).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")
+def request_download(token, dest_path, dl_type="paid"):
+    req = urllib.request.Request(
+        BASE_URL + "/api/loader/download",
+        data=json.dumps({"token": token, "type": dl_type}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
             if resp.status != 200:
                 raise RuntimeError(f"İndirme başarısız (HTTP {resp.status})")
             data = resp.read()
+    except urllib.error.HTTPError as exc:
+        try:
+            err_data = json.loads(exc.read().decode("utf-8", "replace"))
+            msg = err_data.get("error", f"HTTP {exc.code}")
+            raise RuntimeError(f"İndirme başarısız ({msg})")
+        except (ValueError, TypeError):
+            raise RuntimeError(f"İndirme başarısız (HTTP {exc.code})")
     except Exception as exc:
         raise RuntimeError(f"İndirme hatası: {exc}")
     with open(dest_path, "wb") as fh:
@@ -149,8 +163,12 @@ class LoaderApp:
         self.password.pack(fill="x", pady=(4, 16), ipady=6)
         self.password.bind("<Return>", lambda _e: self.login())
 
-        self.login_btn = tk.Button(container, text="GİRİŞ YAP VE BAŞLAT", command=self.login, bg="#ffd700", fg="#0a0f16", activebackground="#ffe44d", activeforeground="#0a0f16", relief="flat", font=("Segoe UI", 11, "bold"), cursor="hand2")
+        self.login_btn = tk.Button(container, text="GİRİŞ YAP", command=self.login, bg="#ffd700", fg="#0a0f16", activebackground="#ffe44d", activeforeground="#0a0f16", relief="flat", font=("Segoe UI", 11, "bold"), cursor="hand2")
         self.login_btn.pack(fill="x", ipady=9)
+
+        self.tab_frame = tk.Frame(container, bg="#070d15")
+        self.tab_btn_free = tk.Button(self.tab_frame, text="🆓 ÜCRETSİZ HİLE", command=lambda: self.start_download("free"), bg="#123456", fg="white", activebackground="#1a4a75", activeforeground="white", relief="flat", font=("Segoe UI", 10, "bold"), cursor="hand2", disabledforeground="#5b7085")
+        self.tab_btn_paid = tk.Button(self.tab_frame, text="💎 ÜCRETLİ HİLE", command=lambda: self.start_download("paid"), bg="#3d2f00", fg="#ffd700", activebackground="#5a4400", activeforeground="#ffd700", relief="flat", font=("Segoe UI", 10, "bold"), cursor="hand2", disabledforeground="#5b7085")
 
         self.status = tk.Label(container, text="Hazır", fg="#65d9ff", bg="#070d15", font=("Segoe UI", 10), wraplength=400, justify="left")
         self.status.pack(fill="x", pady=(16, 0))
@@ -166,12 +184,22 @@ class LoaderApp:
     def set_loading(self, on):
         if on:
             self.login_btn.config(state="disabled", text="İşleniyor...")
+            self.tab_btn_free.config(state="disabled")
+            self.tab_btn_paid.config(state="disabled")
             self.progress.pack(fill="x", pady=(12, 0))
             self.progress.start(12)
         else:
             self.progress.stop()
             self.progress.pack_forget()
-            self.login_btn.config(state="normal", text="GİRİŞ YAP VE BAŞLAT")
+            self.login_btn.config(state="normal", text="GİRİŞ YAP")
+            self.update_tabs()
+
+    def update_tabs(self):
+        if not getattr(self, "logged_in", False):
+            return
+        self.tab_frame.pack(fill="x", pady=(14, 0))
+        self.tab_btn_free.config(state="normal")
+        self.tab_btn_paid.config(state="normal" if self.premium else "disabled")
 
     def login(self):
         username = self.username.get().strip()
@@ -181,11 +209,9 @@ class LoaderApp:
             return
         self.set_loading(True)
         self.set_status("Giriş yapılıyor...")
-        self.root.after(50, self.work, username, password)
+        self.root.after(50, self.work_login, username, password)
 
-    def work(self, username, password):
-        token = None
-        temp_dir = None
+    def work_login(self, username, password):
         updating = False
         try:
             update = check_for_update()
@@ -195,40 +221,84 @@ class LoaderApp:
                 self.apply_update(update[1])
                 return
 
-            token, until = request_login(username, password)
-            days = max(0, (until - int(time.time())) // 86400) if until else 0
-            if until:
-                self.set_status(f"Premium doğrulandı — kalan süre: {days} gün. Paket indiriliyor...")
+            token, premium, until = request_login(username, password)
+            self.token = token
+            self.premium = bool(premium)
+            self.until = int(until or 0)
+            self.logged_in = True
+            days = max(0, (self.until - int(time.time())) // 86400) if self.until else 0
+            if self.premium:
+                self.set_status(f"Giriş başarılı — premium üyeliğin aktif, kalan süre: {days} gün. Bir seçim yap.", "#7cf29c")
             else:
-                self.set_status("Premium doğrulandı, paket indiriliyor...")
+                self.set_status("Giriş başarılı — ücretsiz sürümü indirebilirsin.", "#7cf29c")
+            self.update_tabs()
+        except RuntimeError as exc:
+            self.set_status(str(exc), "#ff6b6b")
+            messagebox.showerror(APP_NAME, str(exc))
+        except Exception as exc:
+            self.set_status(f"Beklenmeyen hata: {exc}", "#ff6b6b")
+            messagebox.showerror(APP_NAME, f"Beklenmeyen hata: {exc}")
+        finally:
+            if not updating:
+                self.set_loading(False)
 
+    def start_download(self, dl_type):
+        if dl_type == "paid" and not getattr(self, "premium", False):
+            messagebox.showwarning(APP_NAME, "Ücretli Hile için premium üyelik gerekli. Bakiye yükleyip Ücretli Hileler sayfasından erişim satın al.")
+            return
+        if not getattr(self, "token", None):
+            messagebox.showwarning(APP_NAME, "Önce giriş yap.")
+            return
+        self.set_loading(True)
+        self.set_status("Paket indiriliyor..." if dl_type == "paid" else "Ücretsiz sürüm indiriliyor...")
+        self.root.after(50, self.work_download, dl_type)
+
+    def work_download(self, dl_type):
+        temp_dir = None
+        try:
             temp_dir = tempfile.mkdtemp(prefix="bigacheat_")
-            zip_path = os.path.join(temp_dir, "premium.zip")
-            request_download(token, zip_path)
-            self.set_status("Paket açılıyor...")
-            extract_dir = os.path.join(temp_dir, "cheat")
-            os.makedirs(extract_dir, exist_ok=True)
-            with zipfile.ZipFile(zip_path) as zf:
-                zf.extractall(extract_dir)
-            exe = os.path.join(extract_dir, EXE_NAME)
-            if not os.path.isfile(exe):
-                raise RuntimeError(f"{EXE_NAME} bulunamadı.")
-            self.set_status("CS2_Injector.exe başlatılıyor...")
-            if os.name == "nt":
-                try:
-                    import ctypes
-                    ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, None, extract_dir, 1)
-                except Exception:
+            if dl_type == "paid":
+                zip_path = os.path.join(temp_dir, "premium.zip")
+                request_download(self.token, zip_path, "paid")
+                self.set_status("Paket açılıyor...")
+                extract_dir = os.path.join(temp_dir, "cheat")
+                os.makedirs(extract_dir, exist_ok=True)
+                with zipfile.ZipFile(zip_path) as zf:
+                    zf.extractall(extract_dir)
+                exe = os.path.join(extract_dir, EXE_NAME)
+                if not os.path.isfile(exe):
+                    raise RuntimeError(f"{EXE_NAME} bulunamadı.")
+                self.set_status("CS2_Injector.exe başlatılıyor...")
+                if os.name == "nt":
+                    try:
+                        import ctypes
+                        ctypes.windll.shell32.ShellExecuteW(None, "runas", exe, None, extract_dir, 1)
+                    except Exception:
+                        subprocess.Popen([exe], cwd=extract_dir)
+                else:
                     subprocess.Popen([exe], cwd=extract_dir)
+                cleanup_after_exit(extract_dir, temp_dir)
+                temp_dir = None  # temizlik thread'e devredildi
+                msg = "Giriş başarılı.\nCS2_Injector.exe başlatıldı."
+                if self.until:
+                    msg += f"\nKalan premium süren: {max(0, (self.until - int(time.time())) // 86400)} gün."
+                msg += "\n\nDosya paylaşımı yasaktır — arşiv senin adına kayıtlı."
             else:
-                subprocess.Popen([exe], cwd=extract_dir)
-            cleanup_after_exit(extract_dir, temp_dir)
-            temp_dir = None  # temizlik thread'e devredildi
-            msg = f"Giriş başarılı.\nCS2_Injector.exe başlatıldı."
-            if until:
-                msg += f"\nKalan premium süren: {days} gün."
-            msg += "\n\nDosya paylaşımı yasaktır — arşiv senin adına kayıtlı."
-            self.set_status("Tamamlandı! Injector açıldı.", "#7cf29c")
+                free_path = os.path.join(temp_dir, "Biga-Cheat-Cs2.exe")
+                request_download(self.token, free_path, "free")
+                self.set_status("Ücretsiz sürüm başlatılıyor...")
+                if os.name == "nt":
+                    try:
+                        import ctypes
+                        ctypes.windll.shell32.ShellExecuteW(None, "runas", free_path, None, temp_dir, 1)
+                    except Exception:
+                        subprocess.Popen([free_path], cwd=temp_dir)
+                else:
+                    subprocess.Popen([free_path], cwd=temp_dir)
+                cleanup_after_exit(temp_dir, temp_dir)
+                temp_dir = None
+                msg = "Giriş başarılı.\nÜcretsiz sürüm başlatıldı.\n\nYüksek avantajlar için Ücretli Hile'yi deneyebilirsin."
+            self.set_status("Tamamlandı!", "#7cf29c")
             messagebox.showinfo(APP_NAME, msg)
         except RuntimeError as exc:
             self.set_status(str(exc), "#ff6b6b")
@@ -242,7 +312,7 @@ class LoaderApp:
                     shutil.rmtree(temp_dir, ignore_errors=True)
                 except Exception:
                     pass
-            if not updating:
+            if getattr(self, "logged_in", False):
                 self.set_loading(False)
 
     def apply_update(self, url):
