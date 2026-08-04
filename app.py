@@ -94,6 +94,7 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "market/list": (3, 60),
     "market/buy": (5, 60),
     "market/cancel": (5, 60),
+    "inventory/sell": (5, 60),
     "trade/send": (5, 60),
     "trade/respond": (10, 60),
 }
@@ -900,7 +901,7 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
             
     balance_pill = f'<span class="balance-pill">Bakiye: {balance_val:.2f} TL</span>' if user else ""
     account = (
-        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/friends" style="color: #b78bff; border-color: #b78bff3d;">👥 Arkadaşlar</a><a class="ghost button" href="/market" style="color: #4ade80; border-color: #4ade803d;">🛒 Pazar</a><a class="ghost button" href="/trade" style="color: #ffd700; border-color: #ffd7003d;">🔁 Takas</a><a class="ghost button" href="/cases" style="color: #ffd700; border-color: #ffd7003d;">🎁 Kasalar</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<a class="user-pill" href="/profile/{quote(user)}" title="Profili görüntüle">{esc(user)}{premium_badge}</a><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
+        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/friends" style="color: #b78bff; border-color: #b78bff3d;">👥 Arkadaşlar</a><a class="ghost button" href="/inventory" style="color: #65d9ff; border-color: #65d9ff3d;">🎒 Envanter</a><a class="ghost button" href="/market" style="color: #4ade80; border-color: #4ade803d;">🛒 Pazar</a><a class="ghost button" href="/trade" style="color: #ffd700; border-color: #ffd7003d;">🔁 Takas</a><a class="ghost button" href="/cases" style="color: #ffd700; border-color: #ffd7003d;">🎁 Kasalar</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<a class="user-pill" href="/profile/{quote(user)}" title="Profili görüntüle">{esc(user)}{premium_badge}</a><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
         if user
         else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/market" style="color: #4ade80; border-color: #4ade803d;">🛒 Pazar</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
     )
@@ -2050,9 +2051,9 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                 rows = connection.execute("SELECT id, case_key, item_name, item_tier, item_value, skin_key, created_at FROM case_inventory WHERE user_id=? ORDER BY created_at DESC LIMIT 60", (user[1],)).fetchall()
                 listed = set(r["inv_id"] for r in connection.execute("SELECT inv_id FROM market_listings WHERE seller_id=? AND status='active'", (user[1],)).fetchall())
             if not rows:
-                body = f"""<section class="page-head"><div><div class="eyebrow">ENVANTER</div><h1>🎒 Envanterin</h1><p class="lead">Kasalardan kazandığın skinler burada birikir. İstediğini <a href="/market">Pazar</a>'da satabilir veya takas edebilirsin.</p></div></section>
+                body = f"""<section class="page-head"><div><div class="eyebrow">ENVANTER</div><h1>🎒 Envanterin</h1><p class="lead">Kasalardan kazandığın skinler burada birikir. <strong>Hızlı Sat</strong> ile canlı fiyattan anında sat ya da istediğin fiyata <strong>Pazara</strong> koy.</p></div></section>
 <section class="auth-card" style="max-width:560px;margin:0 auto;"><div class="empty-state"><h2>Envanter boş</h2><p class="muted">Henüz hiç kasa açmadın. <a href="/cases">Kasalar</a> sekmesinden şansını dene!</p></div></section>"""
-                self.send_html(page("Envanter", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+                self.send_html(page("Envanter", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok, body_csrf=csrf_tok))
                 return
             def inv_card(r):
                 tier = TIER_INFO[r["item_tier"]]
@@ -2060,13 +2061,21 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                 chg = market_change_pct(r["skin_key"] or r["item_name"])
                 arrow = "▲" if chg >= 0 else "▼"
                 chg_cls = "up" if chg >= 0 else "down"
-                listed_tag = '<span class="inv-meta">📦 Pazardaysın</span>' if r["id"] in listed else ""
-                return f'<div class="inv-item" style="--tier:{tier["color"]}"><span class="case-item-star">{tier["star"]}</span><span class="inv-name">{esc(r["item_name"])}</span><span class="inv-meta">{time.strftime("%d.%m.%Y", time.localtime(r["created_at"]))} · {price:.2f} TL <span class="chg-{chg_cls}">{arrow}%{abs(chg):.1f}</span></span>{listed_tag}</div>'
+                if r["id"] in listed:
+                    listed_tag = f'<span class="inv-meta">📦 Pazardaysın · <a href="/market" class="link">Pazara git</a></span>'
+                    actions = ""
+                else:
+                    listed_tag = ""
+                    if price > 0:
+                        actions = f'<form method="post" action="/inventory/sell" class="inline"><input type="hidden" name="csrf_token" value="{esc(csrf_tok)}"><input type="hidden" name="inv_id" value="{r["id"]}"><button class="button primary small" type="submit">💸 Hızlı Sat ({price:.0f} TL)</button></form><form method="post" action="/market/list" class="inline"><input type="hidden" name="csrf_token" value="{esc(csrf_tok)}"><input type="hidden" name="inv_id" value="{r["id"]}"><input type="number" name="price" min="1" step="0.01" placeholder="Fiyat" style="width:80px;padding:6px;border-radius:8px;border:1px solid #ffffff22;background:#0a0e17;color:#fff;" required><button class="ghost small" type="submit">Pazara Koy</button></form>'
+                    else:
+                        actions = '<span class="inv-meta">(satılamaz ödül)</span>'
+                return f'<div class="inv-item" style="--tier:{tier["color"]}"><span class="case-item-star">{tier["star"]}</span><span class="inv-name">{esc(r["item_name"])}</span><span class="inv-meta">{time.strftime("%d.%m.%Y", time.localtime(r["created_at"]))} · {price:.2f} TL <span class="chg-{chg_cls}">{arrow}%{abs(chg):.1f}</span></span>{listed_tag}<div class="inv-actions">{actions}</div></div>'
             inv_cards = "".join(inv_card(r) for r in rows)
-            body = f"""<section class="page-head"><div><div class="eyebrow">ENVANTER</div><h1>🎒 Envanterin</h1><p class="lead">Kasalardan kazandığın skinler burada birikir. İstediğini <a href="/market">Pazar</a>'da satabilir veya takas edebilirsin.</p></div></section>
+            body = f"""<section class="page-head"><div><div class="eyebrow">ENVANTER</div><h1>🎒 Envanterin</h1><p class="lead">Kasalardan kazandığın skinler burada birikir. <strong>Hızlı Sat</strong> ile canlı fiyattan anında sat ya da istediğin fiyata <strong>Pazara</strong> koy.</p></div></section>
 <section class="case-grid" style="max-width:720px;margin:0 auto;"><div class="inv-list">{inv_cards}</div></section>
-<p class="muted" style="text-align:center;margin-top:20px;"><a href="/cases">🎁 Yeni kasa aç →</a> · <a href="/market">🛒 Pazara git →</a> · <a href="/trade">🔁 Takas yap →</a></p>"""
-            self.send_html(page("Envanter", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+<p class="muted" style="text-align:center;margin-top:20px;"><a href="/cases">🎁 Yeni kasa aç →</a> · <a href="/market">🛒 Pazar →</a> · <a href="/trade">🔁 Takas yap →</a></p>"""
+            self.send_html(page("Envanter", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok, body_csrf=csrf_tok))
         elif path == "/login":
             q_text, c_val = generate_captcha()
             fields = f'<label>Kullanıcı adı<input name="username" autocomplete="username" required maxlength="24"></label><label>Şifre<input name="password" type="password" autocomplete="current-password" required></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
@@ -3041,6 +3050,39 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                 connection.execute("UPDATE market_listings SET status='sold' WHERE id=?", (listing["lid"],))
             log_event(f"[PAZAR] '{username}' {listing['seller_name']}'nun ilanını {listing['price']:.2f} TL'ye satın aldı.")
             self.redirect("/market?msg=Skin+satin+alindi&msg_type=success")
+            return
+        elif path == "/inventory/sell":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            if not rate_allowed(f"{ip}:market:{current[1]}", "inventory/sell"):
+                self.redirect("/inventory?msg=Cok+hizli+islem+yapiyorsun&msg_type=error")
+                return
+            inv_id = fields.get("inv_id", "")
+            with db() as connection:
+                owner = connection.execute("SELECT user_id FROM case_inventory WHERE id=?", (inv_id,)).fetchone()
+                if not owner:
+                    self.redirect("/inventory?msg=Esya+bulunamadi&msg_type=error")
+                    return
+                if owner["user_id"] != current[1]:
+                    self.redirect("/inventory?msg=Bu+esya+sana+ait+degil&msg_type=error")
+                    return
+                listed = connection.execute("SELECT 1 FROM market_listings WHERE inv_id=? AND status='active'", (inv_id,)).fetchone()
+                if listed:
+                    self.redirect("/inventory?msg=Esya+zaten+pazarda&msg_type=error")
+                    return
+                inv = connection.execute("SELECT id, item_name, skin_key, item_tier FROM case_inventory WHERE id=?", (inv_id,)).fetchone()
+                price = market_price(inv["skin_key"] or inv["item_name"])
+                if price <= 0:
+                    self.redirect("/inventory?msg=Bu+esya+satilamaz&msg_type=error")
+                    return
+                connection.execute("UPDATE users SET balance=balance+? WHERE id=?", (price, current[1]))
+                connection.execute("DELETE FROM case_inventory WHERE id=?", (inv_id,))
+            log_event(f"[PAZAR] '{username}' envanterden {inv['item_name']}'i canlı fiyata sattı ({price:.2f} TL).")
+            self.redirect(f"/inventory?msg=Satildi:+{quote(inv['item_name'])}+({price:.2f}+TL)&msg_type=success")
             return
         elif path == "/market/cancel":
             if not current:

@@ -233,10 +233,13 @@ td{color:#dbe9f5}
 .case-reveal h2{margin:0;font-size:26px}
 .case-reveal p{margin:0}
 .inv-list{display:flex;flex-direction:column;gap:10px}
-.inv-item{display:flex;align-items:center;gap:12px;padding:14px 16px;border:1px solid color-mix(in srgb,var(--tier) 40%,transparent);border-radius:12px;background:color-mix(in srgb,var(--tier) 7%,#0a101c)}
+.inv-item{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 16px;border:1px solid color-mix(in srgb,var(--tier) 40%,transparent);border-radius:12px;background:color-mix(in srgb,var(--tier) 7%,#0a101c)}
 .inv-name{font-weight:700;font-size:14px}
 .inv-meta{margin-left:auto;color:#8b95a8;font-size:12px}
 .inv-item .inv-meta{display:flex;align-items:center;gap:6px;margin-left:auto}
+.inv-actions{display:flex;align-items:center;gap:8px;flex-basis:100%}
+.inv-actions form{display:flex;align-items:center;gap:8px}
+.inv-actions .button.small,.inv-actions .ghost.small{margin-left:0}
 .chg-up{color:#4ade80;font-weight:700;font-size:12px}
 .chg-down{color:#ff6b6b;font-weight:700;font-size:12px}
 .button.small,.ghost.small{padding:6px 12px;font-size:12px;margin-left:auto}
