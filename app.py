@@ -73,7 +73,7 @@ ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 ADMIN_TTL = 60 * 60 * 12
 LOADER_TTL = 60 * 5  # loader token ömrü: 5 dakika
-LOADER_VERSION = "1.0.0"  # loader güncelleme kontrolü için sürüm
+LOADER_VERSION = "1.1.0"  # loader güncelleme kontrolü için sürüm (loader.py VERSION ile eşleşmeli)
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,24}$")
 FREE_SPIN_COOLDOWN = 60 * 60 * 4  # 4 saat
 

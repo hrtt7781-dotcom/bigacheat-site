@@ -55,15 +55,27 @@ def api_get(path, timeout=15):
         return resp.status, resp.read()
 
 
+def _version_tuple(v):
+    parts = []
+    for p in str(v).replace("-", ".").split("."):
+        try:
+            parts.append(int(p))
+        except ValueError:
+            parts.append(0)
+    return tuple(parts)
+
+
 def check_for_update():
-    """Site sürümünü alır. Güncelleme varsa (version, url) döner, yoksa None."""
+    """Site sürümünü alır. Sunucu DAHA YENİ sürüm bildiriyorsa (version, url) döner, yoksa None."""
     try:
         status, body = api_get("/api/loader/version")
         if status != 200:
             return None
         data = json.loads(body.decode("utf-8", "replace"))
         server_version = str(data.get("version", ""))
-        if not server_version or server_version == VERSION:
+        if not server_version:
+            return None
+        if _version_tuple(server_version) <= _version_tuple(VERSION):
             return None
         return server_version, str(data.get("download_url", ""))
     except Exception:
