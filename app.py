@@ -6,6 +6,7 @@ import hmac
 import html
 import io
 import json
+import math
 import os
 import random
 import re
@@ -90,6 +91,11 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "loader/login": (10, 300),
     "chat/send": (1, 10),
     "cases/open": (3, 60),
+    "market/list": (3, 60),
+    "market/buy": (5, 60),
+    "market/cancel": (5, 60),
+    "trade/send": (5, 60),
+    "trade/respond": (10, 60),
 }
 
 # CS2 benzeri kasa sistemi
@@ -103,151 +109,112 @@ TIER_INFO = {
 }
 TIER_ORDER = ["consumer", "industrial", "restricted", "classified", "covert", "extraordinary"]
 
-# weight değerleri: consumer 60, industrial 25, restricted 10, classified 4, covert 1
-CASES = {
-    "kumbara": {
-        "name": "Kumbara Kasa",
-        "price": 40.0,
-        "icon": "🐷",
-        "color": "#b0c3d9",
-        "tag": "BAŞLANGIÇ",
-        "items": [
-            {"name": "8 TL Bakiye", "tier": "consumer", "type": "balance", "value": 8.0, "weight": 55},
-            {"name": "18 TL Bakiye", "tier": "industrial", "type": "balance", "value": 18.0, "weight": 25},
-            {"name": "35 TL Bakiye", "tier": "restricted", "type": "balance", "value": 35.0, "weight": 13},
-            {"name": "60 TL Bakiye", "tier": "classified", "type": "balance", "value": 60.0, "weight": 5},
-            {"name": "5 Gün Premium", "tier": "covert", "type": "premium", "value": 5, "weight": 2},
-        ],
-    },
-    "mavzer": {
-        "name": "Mavzer Kasa",
-        "price": 60.0,
-        "icon": "🔫",
-        "color": "#5e98d9",
-        "tag": "GÜNCEL",
-        "items": [
-            {"name": "12 TL Bakiye", "tier": "consumer", "type": "balance", "value": 12.0, "weight": 55},
-            {"name": "28 TL Bakiye", "tier": "industrial", "type": "balance", "value": 28.0, "weight": 25},
-            {"name": "55 TL Bakiye", "tier": "restricted", "type": "balance", "value": 55.0, "weight": 13},
-            {"name": "100 TL Bakiye", "tier": "classified", "type": "balance", "value": 100.0, "weight": 5},
-            {"name": "7 Gün Premium", "tier": "covert", "type": "premium", "value": 7, "weight": 2},
-        ],
-    },
-    "cepane": {
-        "name": "Cepane Kasa",
-        "price": 80.0,
-        "icon": "📦",
-        "color": "#8847ff",
-        "tag": "POPÜLER",
-        "items": [
-            {"name": "16 TL Bakiye", "tier": "consumer", "type": "balance", "value": 16.0, "weight": 52},
-            {"name": "36 TL Bakiye", "tier": "industrial", "type": "balance", "value": 36.0, "weight": 25},
-            {"name": "70 TL Bakiye", "tier": "restricted", "type": "balance", "value": 70.0, "weight": 14},
-            {"name": "130 TL Bakiye", "tier": "classified", "type": "balance", "value": 130.0, "weight": 7},
-            {"name": "9 Gün Premium", "tier": "covert", "type": "premium", "value": 9, "weight": 2},
-        ],
-    },
-    "savascı": {
-        "name": "Savaşçı Kasa",
-        "price": 110.0,
-        "icon": "🪖",
-        "color": "#8847ff",
-        "tag": "POPÜLER",
-        "items": [
-            {"name": "22 TL Bakiye", "tier": "consumer", "type": "balance", "value": 22.0, "weight": 52},
-            {"name": "50 TL Bakiye", "tier": "industrial", "type": "balance", "value": 50.0, "weight": 25},
-            {"name": "100 TL Bakiye", "tier": "restricted", "type": "balance", "value": 100.0, "weight": 14},
-            {"name": "190 TL Bakiye", "tier": "classified", "type": "balance", "value": 190.0, "weight": 7},
-            {"name": "12 Gün Premium", "tier": "covert", "type": "premium", "value": 12, "weight": 2},
-        ],
-    },
-    "yildiz": {
-        "name": "Yıldız Kasa",
-        "price": 140.0,
-        "icon": "⭐",
-        "color": "#d32ce6",
-        "tag": "GÜNCEL",
-        "items": [
-            {"name": "28 TL Bakiye", "tier": "consumer", "type": "balance", "value": 28.0, "weight": 52},
-            {"name": "65 TL Bakiye", "tier": "industrial", "type": "balance", "value": 65.0, "weight": 25},
-            {"name": "130 TL Bakiye", "tier": "restricted", "type": "balance", "value": 130.0, "weight": 14},
-            {"name": "250 TL Bakiye", "tier": "classified", "type": "balance", "value": 250.0, "weight": 7},
-            {"name": "15 Gün Premium", "tier": "covert", "type": "premium", "value": 15, "weight": 2},
-        ],
-    },
-    "spektrum": {
-        "name": "Spektrum Kasa",
-        "price": 180.0,
-        "icon": "🌈",
-        "color": "#d32ce6",
-        "tag": "GÜNCEL",
-        "items": [
-            {"name": "36 TL Bakiye", "tier": "consumer", "type": "balance", "value": 36.0, "weight": 50},
-            {"name": "85 TL Bakiye", "tier": "industrial", "type": "balance", "value": 85.0, "weight": 25},
-            {"name": "170 TL Bakiye", "tier": "restricted", "type": "balance", "value": 170.0, "weight": 15},
-            {"name": "330 TL Bakiye", "tier": "classified", "type": "balance", "value": 330.0, "weight": 8},
-            {"name": "18 Gün Premium", "tier": "covert", "type": "premium", "value": 18, "weight": 2},
-        ],
-    },
-    "buzcagi": {
-        "name": "Buz Çağı Kasa",
-        "price": 220.0,
-        "icon": "❄️",
-        "color": "#5e98d9",
-        "tag": "ÖZEL",
-        "items": [
-            {"name": "45 TL Bakiye", "tier": "consumer", "type": "balance", "value": 45.0, "weight": 50},
-            {"name": "105 TL Bakiye", "tier": "industrial", "type": "balance", "value": 105.0, "weight": 25},
-            {"name": "210 TL Bakiye", "tier": "restricted", "type": "balance", "value": 210.0, "weight": 15},
-            {"name": "420 TL Bakiye", "tier": "classified", "type": "balance", "value": 420.0, "weight": 8},
-            {"name": "22 Gün Premium", "tier": "covert", "type": "premium", "value": 22, "weight": 2},
-        ],
-    },
-    "yanardag": {
-        "name": "Yanardağ Kasa",
-        "price": 280.0,
-        "icon": "🌋",
-        "color": "#eb4b4b",
-        "tag": "ÖZEL",
-        "items": [
-            {"name": "55 TL Bakiye", "tier": "consumer", "type": "balance", "value": 55.0, "weight": 50},
-            {"name": "130 TL Bakiye", "tier": "industrial", "type": "balance", "value": 130.0, "weight": 25},
-            {"name": "260 TL Bakiye", "tier": "restricted", "type": "balance", "value": 260.0, "weight": 15},
-            {"name": "520 TL Bakiye", "tier": "classified", "type": "balance", "value": 520.0, "weight": 8},
-            {"name": "28 Gün Premium", "tier": "covert", "type": "premium", "value": 28, "weight": 2},
-        ],
-    },
-    "efsane": {
-        "name": "Efsane Kasa",
-        "price": 360.0,
-        "icon": "👑",
-        "color": "#eb4b4b",
-        "tag": "EKSKLUSİF",
-        "items": [
-            {"name": "70 TL Bakiye", "tier": "consumer", "type": "balance", "value": 70.0, "weight": 46},
-            {"name": "170 TL Bakiye", "tier": "industrial", "type": "balance", "value": 170.0, "weight": 25},
-            {"name": "340 TL Bakiye", "tier": "restricted", "type": "balance", "value": 340.0, "weight": 16},
-            {"name": "680 TL Bakiye", "tier": "classified", "type": "balance", "value": 680.0, "weight": 9},
-            {"name": "35 Gün Premium", "tier": "covert", "type": "premium", "value": 35, "weight": 3},
-            {"name": "90 Gün Premium", "tier": "extraordinary", "type": "premium", "value": 90, "weight": 1},
-        ],
-    },
-    "imparator": {
-        "name": "İmparator Kasa",
-        "price": 500.0,
-        "icon": "💎",
-        "color": "#ffd700",
-        "tag": "EKSKLUSİF",
-        "items": [
-            {"name": "95 TL Bakiye", "tier": "consumer", "type": "balance", "value": 95.0, "weight": 42},
-            {"name": "230 TL Bakiye", "tier": "industrial", "type": "balance", "value": 230.0, "weight": 25},
-            {"name": "460 TL Bakiye", "tier": "restricted", "type": "balance", "value": 460.0, "weight": 17},
-            {"name": "920 TL Bakiye", "tier": "classified", "type": "balance", "value": 920.0, "weight": 10},
-            {"name": "45 Gün Premium", "tier": "covert", "type": "premium", "value": 45, "weight": 4},
-            {"name": "270 Gün Premium (9 AY)", "tier": "extraordinary", "type": "premium", "value": 270, "weight": 2},
-        ],
-    },
+# ---------------------------------------------------------------------------
+# SKIN SİSTEMİ: 25 skin, kasalara fiyat/nadirliklerine göre dağıtılmıştır.
+# Her skin'in canlı pazar fiyatı market_price() ile zaman içinde dalgalanır.
+# ---------------------------------------------------------------------------
+SKINS = {
+    "mp5-desert": {"name": "MP5-SD | Çöl Tozu", "tier": "consumer", "icon": "🔫", "value": 15.0, "case": "kumbara"},
+    "p250-pasli": {"name": "P250 | Paslı", "tier": "consumer", "icon": "🔫", "value": 18.0, "case": "kumbara"},
+    "ump-sokak": {"name": "UMP-45 | Sokak Sanatı", "tier": "consumer", "icon": "🔫", "value": 20.0, "case": "mavzer"},
+    "mac10-alev": {"name": "MAC-10 | Alev", "tier": "industrial", "icon": "🔫", "value": 38.0, "case": "mavzer"},
+    "mp7-neon": {"name": "MP7 | Neon Yansıma", "tier": "restricted", "icon": "🔫", "value": 75.0, "case": "mavzer"},
+    "sg553-kamuflaj": {"name": "SG 553 | Kamuflaj", "tier": "industrial", "icon": "🔫", "value": 45.0, "case": "cepane"},
+    "galil-renk": {"name": "Galil AR | Neon", "tier": "restricted", "icon": "🔫", "value": 85.0, "case": "cepane"},
+    "famas-kristal": {"name": "FAMAS | Kristal", "tier": "classified", "icon": "🔫", "value": 140.0, "case": "cepane"},
+    "awp-gece": {"name": "AWP | Gece Avcısı", "tier": "industrial", "icon": "🎯", "value": 55.0, "case": "savascı"},
+    "m4a4-asindirici": {"name": "M4A4 | Aşındırıcı", "tier": "restricted", "icon": "🔫", "value": 105.0, "case": "savascı"},
+    "usps-altincizgi": {"name": "USP-S | Altın Çizgi", "tier": "classified", "icon": "🔫", "value": 165.0, "case": "savascı"},
+    "ak47-pas": {"name": "AK-47 | Pas", "tier": "restricted", "icon": "🔫", "value": 95.0, "case": "yildiz"},
+    "deagle-mekanik": {"name": "Desert Eagle | Mekanik", "tier": "classified", "icon": "🔫", "value": 175.0, "case": "yildiz"},
+    "awp-medusa": {"name": "AWP | Medusa Bakışı", "tier": "covert", "icon": "🎯", "value": 310.0, "case": "yildiz"},
+    "m4a1s-buz": {"name": "M4A1-S | Buz Deseni", "tier": "restricted", "icon": "🔫", "value": 125.0, "case": "spektrum"},
+    "mp9-gokkusagi": {"name": "MP9 | Gökkuşağı", "tier": "classified", "icon": "🔫", "value": 225.0, "case": "spektrum"},
+    "awp-neon": {"name": "AWP | Neon Işık", "tier": "covert", "icon": "🎯", "value": 390.0, "case": "spektrum"},
+    "ak47-buzkral": {"name": "AK-47 | Buz Kraliçesi", "tier": "classified", "icon": "🔫", "value": 285.0, "case": "buzcagi"},
+    "awp-kiyamet": {"name": "AWP | Kıyamet", "tier": "covert", "icon": "🎯", "value": 530.0, "case": "buzcagi"},
+    "m4a4-lav": {"name": "M4A4 | Lav Damarı", "tier": "classified", "icon": "🔫", "value": 345.0, "case": "yanardag"},
+    "deagle-ejder": {"name": "Desert Eagle | Ejder", "tier": "covert", "icon": "🔫", "value": 630.0, "case": "yanardag"},
+    "ak47-altinaslan": {"name": "AK-47 | Altın Aslan", "tier": "covert", "icon": "🔫", "value": 560.0, "case": "efsane"},
+    "karambit-golge": {"name": "Karambit | Gölge Hançeri", "tier": "extraordinary", "icon": "🔪", "value": 1150.0, "case": "efsane"},
+    "awp-imparator": {"name": "AWP | İmparator", "tier": "covert", "icon": "🎯", "value": 820.0, "case": "imparator"},
+    "karambit-kizil": {"name": "Karambit | Kızıl İmparator", "tier": "extraordinary", "icon": "🔪", "value": 1850.0, "case": "imparator"},
 }
+
+# weight değerleri: yüksek tier daha nadir çıkar.
+_CASE_DEFS = {
+    "kumbara": {"name": "Kumbara Kasa", "price": 40.0, "icon": "🐷", "color": "#b0c3d9", "tag": "BAŞLANGIÇ",
+                "items": [("mp5-desert", 60), ("p250-pasli", 40)]},
+    "mavzer": {"name": "Mavzer Kasa", "price": 60.0, "icon": "🔫", "color": "#5e98d9", "tag": "GÜNCEL",
+               "items": [("ump-sokak", 55), ("mac10-alev", 30), ("mp7-neon", 15)]},
+    "cepane": {"name": "Cepane Kasa", "price": 80.0, "icon": "📦", "color": "#8847ff", "tag": "POPÜLER",
+               "items": [("sg553-kamuflaj", 45), ("galil-renk", 35), ("famas-kristal", 20)]},
+    "savascı": {"name": "Savaşçı Kasa", "price": 110.0, "icon": "🪖", "color": "#8847ff", "tag": "POPÜLER",
+                "items": [("awp-gece", 45), ("m4a4-asindirici", 35), ("usps-altincizgi", 20)]},
+    "yildiz": {"name": "Yıldız Kasa", "price": 140.0, "icon": "⭐", "color": "#d32ce6", "tag": "GÜNCEL",
+               "items": [("ak47-pas", 50), ("deagle-mekanik", 35), ("awp-medusa", 15)]},
+    "spektrum": {"name": "Spektrum Kasa", "price": 180.0, "icon": "🌈", "color": "#d32ce6", "tag": "GÜNCEL",
+                 "items": [("m4a1s-buz", 45), ("mp9-gokkusagi", 40), ("awp-neon", 15)]},
+    "buzcagi": {"name": "Buz Çağı Kasa", "price": 220.0, "icon": "❄️", "color": "#5e98d9", "tag": "ÖZEL",
+                "items": [("ak47-buzkral", 65), ("awp-kiyamet", 35)]},
+    "yanardag": {"name": "Yanardağ Kasa", "price": 280.0, "icon": "🌋", "color": "#eb4b4b", "tag": "ÖZEL",
+                 "items": [("m4a4-lav", 65), ("deagle-ejder", 35)]},
+    "efsane": {"name": "Efsane Kasa", "price": 360.0, "icon": "👑", "color": "#eb4b4b", "tag": "EKSKLUSİF",
+               "items": [("ak47-altinaslan", 80), ("karambit-golge", 20)]},
+    "imparator": {"name": "İmparator Kasa", "price": 500.0, "icon": "💎", "color": "#ffd700", "tag": "EKSKLUSİF",
+                  "items": [("awp-imparator", 80), ("karambit-kizil", 20)]},
+}
+
+CASES = {}
+for _ck, _cd in _CASE_DEFS.items():
+    _items = []
+    for _skin_key, _weight in _cd["items"]:
+        _s = SKINS[_skin_key]
+        _items.append({
+            "name": _s["name"], "tier": _s["tier"], "type": "skin",
+            "skin": _skin_key, "icon": _s["icon"], "value": _s["value"], "weight": _weight,
+        })
+    _cd["items"] = _items
+    CASES[_ck] = _cd
+
+# ---------------------------------------------------------------------------
+# CANLI PAZAR FİYAT MOTORU
+# market_price(skin_key, t): deterministik, zamanla oynayan fiyat. Sunucu
+# durumuna bağlı değildir; aynı anda her kullanıcı aynı fiyatı görür.
+# ---------------------------------------------------------------------------
+_PRICE_SPAN = 3600.0  # fiyat döngüsünün ana periyodu (1 saat)
+
+
+def _skin_seed(key: str) -> int:
+    return int(hashlib.md5(key.encode()).hexdigest(), 16)
+
+
+def market_price(skin_key: str, t: float | None = None) -> float:
+    t = time.time() if t is None else t
+    skin = SKINS[skin_key]
+    seed = _skin_seed(skin_key)
+    p1 = (seed % 100) / 100.0
+    p2 = ((seed >> 8) % 100) / 100.0
+    p3 = ((seed >> 16) % 100) / 100.0
+    w1 = math.sin(2 * math.pi * t / _PRICE_SPAN + p1 * 6.283)
+    w2 = 0.6 * math.sin(2 * math.pi * t / (_PRICE_SPAN * 3.7) + p2 * 6.283)
+    w3 = 0.35 * math.sin(2 * math.pi * t / (_PRICE_SPAN * 0.13) + p3 * 6.283)
+    w4 = 0.18 * math.sin(2 * math.pi * t / 47.0 + p1 * 4.0)
+    factor = 1.0 + 0.14 * w1 + 0.08 * w2 + 0.05 * w3 + 0.02 * w4
+    factor = max(0.6, min(1.6, factor))
+    return round(skin["value"] * factor, 2)
+
+
+def market_history(skin_key: str, points: int = 40, step: float = 90.0) -> list[float]:
+    t = time.time()
+    return [market_price(skin_key, t - (points - 1 - i) * step) for i in range(points)]
+
+
+def market_change_pct(skin_key: str, window: float = 3600.0) -> float:
+    now = time.time()
+    cur = market_price(skin_key, now)
+    prev = market_price(skin_key, now - window)
+    return round((cur - prev) / prev * 100.0, 2)
 
 
 def rate_allowed(ip: str, action: str) -> bool:
@@ -369,6 +336,30 @@ def _migrate(connection) -> None:
                     item_name TEXT NOT NULL,
                     item_tier TEXT NOT NULL,
                     item_value DOUBLE PRECISION NOT NULL DEFAULT 0,
+                    skin_key TEXT NOT NULL DEFAULT '',
+                    created_at BIGINT NOT NULL
+                )"""
+            )
+            connection.execute("ALTER TABLE case_inventory ADD COLUMN IF NOT EXISTS skin_key TEXT NOT NULL DEFAULT ''")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS market_listings (
+                    id BIGSERIAL PRIMARY KEY,
+                    seller_id BIGINT NOT NULL REFERENCES users(id),
+                    inv_id BIGINT NOT NULL REFERENCES case_inventory(id),
+                    skin_key TEXT NOT NULL,
+                    price DOUBLE PRECISION NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at BIGINT NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS trade_requests (
+                    id BIGSERIAL PRIMARY KEY,
+                    sender_id BIGINT NOT NULL REFERENCES users(id),
+                    receiver_id BIGINT NOT NULL REFERENCES users(id),
+                    sender_inv_id BIGINT NOT NULL REFERENCES case_inventory(id),
+                    receiver_inv_id BIGINT NOT NULL REFERENCES case_inventory(id),
+                    status TEXT NOT NULL DEFAULT 'pending',
                     created_at BIGINT NOT NULL
                 )"""
             )
@@ -531,8 +522,40 @@ def _migrate(connection) -> None:
                     item_name TEXT NOT NULL,
                     item_tier TEXT NOT NULL,
                     item_value REAL NOT NULL DEFAULT 0,
+                    skin_key TEXT NOT NULL DEFAULT '',
                     created_at INTEGER NOT NULL,
                     FOREIGN KEY(user_id) REFERENCES users(id)
+                )"""
+            )
+            try:
+                connection.execute("ALTER TABLE case_inventory ADD COLUMN skin_key TEXT NOT NULL DEFAULT ''")
+                connection.commit()
+            except sqlite3.OperationalError:
+                pass
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS market_listings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    seller_id INTEGER NOT NULL,
+                    inv_id INTEGER NOT NULL,
+                    skin_key TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(seller_id) REFERENCES users(id),
+                    FOREIGN KEY(inv_id) REFERENCES case_inventory(id)
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS trade_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sender_id INTEGER NOT NULL,
+                    receiver_id INTEGER NOT NULL,
+                    sender_inv_id INTEGER NOT NULL,
+                    receiver_inv_id INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(sender_id) REFERENCES users(id),
+                    FOREIGN KEY(receiver_id) REFERENCES users(id)
                 )"""
             )
 
@@ -860,9 +883,9 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
             
     balance_pill = f'<span class="balance-pill">Bakiye: {balance_val:.2f} TL</span>' if user else ""
     account = (
-        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/friends" style="color: #b78bff; border-color: #b78bff3d;">👥 Arkadaşlar</a><a class="ghost button" href="/cases" style="color: #ffd700; border-color: #ffd7003d;">🎁 Kasalar</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<a class="user-pill" href="/profile/{quote(user)}" title="Profili görüntüle">{esc(user)}{premium_badge}</a><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
+        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/friends" style="color: #b78bff; border-color: #b78bff3d;">👥 Arkadaşlar</a><a class="ghost button" href="/market" style="color: #4ade80; border-color: #4ade803d;">🛒 Pazar</a><a class="ghost button" href="/trade" style="color: #ffd700; border-color: #ffd7003d;">🔁 Takas</a><a class="ghost button" href="/cases" style="color: #ffd700; border-color: #ffd7003d;">🎁 Kasalar</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<a class="user-pill" href="/profile/{quote(user)}" title="Profili görüntüle">{esc(user)}{premium_badge}</a><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
         if user
-        else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
+        else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/market" style="color: #4ade80; border-color: #4ade803d;">🛒 Pazar</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
     )
     msg_class = "notice " + message_type if message_type else "notice"
     notice = f'<div class="{msg_class}">{esc(message)}</div>' if message else ""
@@ -1663,14 +1686,15 @@ setInterval(poll, 1500);
                 tier = TIER_INFO[it["tier"]]
                 label = it["name"]
                 pct = it["weight"] / total_w * 100
-                return f'<div class="case-item" data-tier="{it["tier"]}" style="--tier:{tier["color"]}"><span class="case-item-star">{tier["star"]}</span><span class="case-item-name">{esc(label)}</span><span class="case-item-pct">{pct:.2f}%</span></div>'
+                live = market_price(it.get("skin", it["name"]))
+                return f'<div class="case-item" data-tier="{it["tier"]}" style="--tier:{tier["color"]}"><span class="case-item-icon">{it.get("icon", "🎁")}</span><span class="case-item-star">{tier["star"]}</span><span class="case-item-name">{esc(label)}</span><span class="case-item-pct">%{pct:.2f} · {live:.0f} TL</span></div>'
             item_rows = "".join(item_html(i) for i in case["items"])
             case_cards = "".join(
                 f'<a class="case-card{" active" if k == sel_key else ""}" href="/cases?c={k}" style="--case:{c["color"]}"><span class="case-icon">{c["icon"]}</span><h3>{esc(c["name"])}</h3><span class="case-tag">{c["tag"]}</span><span class="case-price">₺{c["price"]:.0f}</span></a>'
                 for k, c in CASES.items()
             )
             balance_pill = f'<div class="case-balance">Bakiyen: <strong>{balance_val:.2f} TL</strong></div>'
-            body = f"""<section class="page-head"><div><div class="eyebrow">KASA AÇMA</div><h1>🎁 Kasalar</h1><p class="lead">Bakiyenle kasa aç, CS2 tarzı ödüller kazan. En nadir ödül: <strong style="color:#ffd700;">9 AYLIK PREMIUM</strong>!</p></div>{balance_pill}</section>
+            body = f"""<section class="page-head"><div><div class="eyebrow">KASA AÇMA</div><h1>🎁 Kasalar</h1><p class="lead">Bakiyenle kasa aç, CS2 tarzı <strong style="color:#ffd700;">skinler</strong> kazan. Kazandığını <a href="/market">🛒 Pazar</a>'da sat veya takas et!</p></div>{balance_pill}</section>
 <section class="case-grid">{case_cards}</section>
 <section class="case-viewer" data-case="{sel_key}">
   <div class="case-viewer-head"><span class="case-icon big">{case["icon"]}</span><div><h2>{esc(case["name"])} <small>₺{case["price"]:.0f} ile aç</small></h2><p class="muted">{esc(case["tag"])} kasa · {len(case["items"])} ödül</p></div>
@@ -1687,7 +1711,7 @@ setInterval(poll, 1500);
   <button class="button primary" id="case-close" style="display:none;">Tamam</button>
 </div>
 <script>
-const CASES_JS = {json.dumps({k: {"name": c["name"], "price": c["price"], "icon": c["icon"], "color": c["color"], "items": [{"name": i["name"], "tier": i["tier"], "type": i["type"], "value": i["value"]} for i in c["items"]]} for k, c in CASES.items()}, ensure_ascii=False)};
+const CASES_JS = {json.dumps({k: {"name": c["name"], "price": c["price"], "icon": c["icon"], "color": c["color"], "items": [{"name": i["name"], "tier": i["tier"], "type": i["type"], "icon": i.get("icon", "🎁"), "skin": i.get("skin", ""), "value": i["value"]} for i in c["items"]]} for k, c in CASES.items()}, ensure_ascii=False)};
 const TIERS = {json.dumps(TIER_INFO, ensure_ascii=False)};
 const openBtn = document.getElementById("case-open-btn");
 const overlay = document.getElementById("case-overlay");
@@ -1736,24 +1760,27 @@ function winSound(rarity) {{
 
 function revealHtml(d) {{
   const tier = TIERS[d.item.tier] || {{name: "Ödül", color: "#fff"}};
-  return '<div class="case-reveal-inner" style="--tier:' + tier.color + '"><span class="case-reveal-icon">' + (d.item.tier === "extraordinary" ? "👑" : "🎉") + '</span><span class="case-reveal-rarity">' + tier.star + '</span><h2>' + d.item.name + '</h2><p style="color:' + tier.color + ';font-weight:700;">' + tier.name + '</p><p class="muted">' + (d.balance != null ? "Yeni bakiyen: " + d.balance.toFixed(2) + " TL" : "") + '</p></div>';
+  const icon = d.item.icon || (d.item.tier === "extraordinary" ? "👑" : "🎉");
+  const marketLine = (d.item.value != null) ? '<p class="muted">Pazar değeri: ' + d.item.value.toFixed(0) + ' TL baz</p>' : '';
+  return '<div class="case-reveal-inner" style="--tier:' + tier.color + '"><span class="case-reveal-icon">' + icon + '</span><span class="case-reveal-rarity">' + tier.star + '</span><h2>' + d.item.name + '</h2><p style="color:' + tier.color + ';font-weight:700;">' + tier.name + '</p>' + marketLine + (d.balance != null ? '<p class="muted">Yeni bakiyen: ' + d.balance.toFixed(2) + ' TL</p>' : '') + '</div>';
 }}
 
 function startRoll(ck, d) {{
-  const winIdx = 8 + Math.floor(Math.random() * 6);
+  const CELLS = 48;
+  const winIdx = 20 + Math.floor(Math.random() * 8);
   const cells = [];
-  for (let i = 0; i < 24; i++) {{
+  for (let i = 0; i < CELLS; i++) {{
     const item = i === winIdx ? d.item : CASES_JS[ck].items[Math.floor(Math.random() * CASES_JS[ck].items.length)];
     const el = document.createElement("div");
     el.className = "unbox-cell";
     el.style.setProperty("--tier", TIERS[item.tier].color);
-    el.textContent = item.tier === "extraordinary" ? "💎" : "🎁";
+    el.textContent = item.icon || (item.tier === "extraordinary" ? "💎" : "🎁");
     unbox.appendChild(el);
     cells.push(el);
   }}
   const markerX = unbox.clientWidth / 2;
   const target = Math.max(0, cells[winIdx].offsetLeft + cells[winIdx].offsetWidth / 2 - markerX);
-  const duration = 9500 + Math.random() * 1500;
+  const duration = 27500 + Math.random() * 5000;
   const t0 = performance.now();
   let lastUnder = -1;
 
@@ -1830,24 +1857,189 @@ closeBtn.addEventListener("click", () => {{
 }});
 </script>"""
             self.send_html(page("Kasalar", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok, body_csrf=csrf_tok))
+        elif path == "/market":
+            if not user:
+                self.redirect("/login")
+                return
+            bal_row = None
+            with db() as connection:
+                bal_row = connection.execute("SELECT balance FROM users WHERE id=?", (user[1],)).fetchone()
+            mkt_balance = float(bal_row["balance"]) if bal_row else 0.0
+            mkt_pill = f'<div class="case-balance">Bakiyen: <strong>{mkt_balance:.2f} TL</strong></div>'
+            with db() as connection:
+                my_inv = connection.execute(
+                    "SELECT id, item_name, item_tier, item_value, skin_key FROM case_inventory WHERE user_id=? ORDER BY item_value DESC", (user[1],)
+                ).fetchall()
+                listed_ids = set(r["inv_id"] for r in connection.execute(
+                    "SELECT inv_id FROM market_listings WHERE seller_id=? AND status='active'", (user[1],)
+                ).fetchall())
+                active_listings = connection.execute(
+                    """SELECT l.id AS lid, l.price, l.created_at, l.inv_id, l.skin_key,
+                              ci.item_name, ci.item_tier, u.username AS seller
+                       FROM market_listings l
+                       JOIN case_inventory ci ON ci.id = l.inv_id
+                       JOIN users u ON u.id = l.seller_id
+                       WHERE l.status='active' ORDER BY l.created_at DESC LIMIT 40"""
+                ).fetchall()
+            sell_options = "".join(
+                f'<option value="{r["id"]}"{" disabled" if r["id"] in listed_ids else ""}>{esc(r["item_name"])} ({TIER_INFO[r["item_tier"]]["name"]} · {market_price(r["skin_key"] or r["item_name"]):.0f} TL)</option>'
+                for r in my_inv
+            )
+            market_rows = ""
+            for key, s in SKINS.items():
+                price = market_price(key)
+                chg = market_change_pct(key)
+                tier = TIER_INFO[s["tier"]]
+                hist = market_history(key, 40)
+                lo, hi = min(hist), max(hist)
+                span = (hi - lo) or 1
+                pts = []
+                w, h = 120, 32
+                for i, v in enumerate(hist):
+                    x = i / (len(hist) - 1) * w
+                    y = h - (v - lo) / span * (h - 4) - 2
+                    pts.append(f"{x:.1f},{y:.1f}")
+                spark = f'<svg width="{w}" height="{h}" class="mkt-spark"><polyline points="{" ".join(pts)}" fill="none" stroke="{"#4ade80" if chg >= 0 else "#ff6b6b"}" stroke-width="2"/></svg>'
+                arrow = "▲" if chg >= 0 else "▼"
+                chg_cls = "up" if chg >= 0 else "down"
+                market_rows += f'<div class="mkt-row" data-key="{key}" style="--tier:{tier["color"]}"><span class="mkt-icon">{s["icon"]}</span><span class="mkt-name"><b>{esc(s["name"])}</b><small>{tier["star"]} {tier["name"]}</small></span><span class="mkt-spark-cell">{spark}</span><span class="mkt-price">{price:.2f} TL</span><span class="chg-{chg_cls}">{arrow} %{abs(chg):.1f}</span><span class="mkt-base">Baz {s["value"]:.0f} TL</span></div>'
+            listing_rows = ""
+            for l in active_listings:
+                seller_is_me = (l["seller"] == username)
+                buy_btn = f'<form method="post" action="/market/buy" class="inline"><input type="hidden" name="csrf_token" value="{esc(csrf_tok)}"><input type="hidden" name="listing_id" value="{l["lid"]}"><button class="button primary small" type="submit">Satın Al</button></form>' if not seller_is_me else f'<form method="post" action="/market/cancel" class="inline"><input type="hidden" name="csrf_token" value="{esc(csrf_tok)}"><input type="hidden" name="listing_id" value="{l["lid"]}"><button class="ghost small" type="submit">Geri Çek</button></form>'
+                listing_rows += f'<div class="inv-item" style="--tier:{TIER_INFO[l["item_tier"]]["color"]}"><span class="case-item-star">{TIER_INFO[l["item_tier"]]["star"]}</span><span class="inv-name">{esc(l["item_name"])}</span><span class="inv-meta">{esc(l["seller"])} · {l["price"]:.2f} TL</span>{buy_btn}</div>'
+            sell_form = f'''<section class="auth-card" style="max-width:720px;margin:0 auto;margin-top:26px;">
+<div class="eyebrow">SKİNİNİ SAT</div><h2>İstediğin fiyata listele</h2>
+<form method="post" action="/market/list" class="form">
+<input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+<label>Skin Seç<select name="inv_id" required>{sell_options or '<option disabled>Önce kasa aç, envanterin boş</option>'}</select></label>
+<label>Satış Fiyatı (TL)<input type="number" name="price" min="1" step="0.01" required placeholder="Örn: 150"></label>
+<button class="button primary wide" type="submit">🛒 Pazara Koy</button>
+</form></section>'''
+            body = f"""<section class="page-head"><div><div class="eyebrow">CANLI PAZAR</div><h1>🛒 Skin Pazarı</h1><p class="lead">Tüm skinlerin <strong>canlı fiyatı</strong> sürekli dalgalanır. Skinini istediğin fiyata sat veya satılıklardan al!</p></div>{mkt_pill}</section>
+<section class="mkt-table"><div class="mkt-head"><span>SKIN</span><span>GRAFİK (son 1 saat)</span><span>CANLI FİYAT</span><span>DEĞİŞİM</span><span>BAZ</span></div>{market_rows}</section>
+<section class="auth-card" style="max-width:720px;margin:0 auto;margin-top:26px;"><div class="eyebrow">SATILIK SKİNLER</div><h2>Alım yap</h2><div class="inv-list">{listing_rows or '<p class="muted">Henüz satılık skin yok. İlk sen listele!</p>'}</div></section>
+{sell_form}
+<p class="muted" style="text-align:center;margin-top:20px;"><a href="/cases">🎁 Kasa aç →</a> · <a href="/inventory">🎒 Envanter →</a> · <a href="/trade">🔁 Takas →</a></p>
+<script>
+setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {{
+  const rows = document.querySelectorAll(".mkt-row");
+  rows.forEach(r => {{
+    const key = r.dataset.key; if (!key || !d[key]) return;
+    const priceEl = r.querySelector(".mkt-price");
+    const chgEl = r.querySelector(".chg-up, .chg-down");
+    priceEl.textContent = d[key].price.toFixed(2) + " TL";
+    const up = d[key].chg >= 0;
+    chgEl.textContent = (up ? "▲ %" : "▼ %") + Math.abs(d[key].chg).toFixed(1);
+    chgEl.className = up ? "chg-up" : "chg-down";
+  }});
+}}).catch(() => {{}}); }}, 5000);
+</script>"""
+            self.send_html(page("Pazar", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok, body_csrf=csrf_tok))
+        elif path == "/market/api/prices":
+            data = {k: {"price": market_price(k), "chg": market_change_pct(k), "history": market_history(k, 40)} for k in SKINS}
+            self.send_json(data)
+        elif path == "/trade":
+            if not user:
+                self.redirect("/login")
+                return
+            with db() as connection:
+                my_inv = connection.execute(
+                    "SELECT id, item_name, item_tier, item_value, skin_key FROM case_inventory WHERE user_id=? ORDER BY item_value DESC", (user[1],)
+                ).fetchall()
+                listed_ids = set(r["inv_id"] for r in connection.execute(
+                    "SELECT inv_id FROM market_listings WHERE seller_id=? AND status='active'", (user[1],)
+                ).fetchall())
+                pending_out = connection.execute(
+                    """SELECT tr.id, tr.sender_inv_id, tr.receiver_inv_id, tr.status, tr.created_at,
+                              ci1.item_name AS from_item, ci2.item_name AS to_item, u.username AS to_user
+                       FROM trade_requests tr
+                       JOIN case_inventory ci1 ON ci1.id = tr.sender_inv_id
+                       JOIN case_inventory ci2 ON ci2.id = tr.receiver_inv_id
+                       JOIN users u ON u.id = tr.receiver_id
+                       WHERE tr.sender_id=? AND tr.status='pending' ORDER BY tr.created_at DESC""", (user[1],)
+                ).fetchall()
+                pending_in = connection.execute(
+                    """SELECT tr.id, tr.sender_inv_id, tr.receiver_inv_id, tr.status, tr.created_at,
+                              ci1.item_name AS from_item, ci1.item_tier AS from_tier, ci2.item_name AS to_item, u.username AS from_user
+                       FROM trade_requests tr
+                       JOIN case_inventory ci1 ON ci1.id = tr.sender_inv_id
+                       JOIN case_inventory ci2 ON ci2.id = tr.receiver_inv_id
+                       JOIN users u ON u.id = tr.sender_id
+                       WHERE tr.receiver_id=? AND tr.status='pending' ORDER BY tr.created_at DESC""", (user[1],)
+                ).fetchall()
+                offer_options = "".join(
+                    f'<option value="{r["id"]}"{" disabled" if r["id"] in listed_ids else ""}>{esc(r["item_name"])} ({market_price(r["skin_key"] or r["item_name"]):.0f} TL)</option>'
+                    for r in my_inv
+                )
+                want_options = "".join(
+                    f'<option value="{r["id"]}">{esc(r["item_name"])} · {esc(r["username"])}</option>'
+                    for r in connection.execute(
+                        """SELECT ci.id, ci.item_name, ci.skin_key, u.username FROM case_inventory ci
+                           JOIN users u ON u.id = ci.user_id WHERE ci.user_id <> ? ORDER BY ci.item_value DESC LIMIT 30""", (user[1],)
+                    ).fetchall()
+                )
+                out_rows = "".join(
+                    f'<div class="inv-item"><span class="inv-name">{esc(r["from_item"])}</span><span class="inv-meta">→ {esc(r["to_user"])} · {esc(r["to_item"])} · <a href="/trade/cancel?cancel={r["id"]}&csrf_token={quote(csrf_tok)}" class="link">İptal</a></span></div>'
+                    for r in pending_out
+                )
+                in_rows = ""
+                for r in pending_in:
+                    tier = TIER_INFO[r["from_tier"]]
+                    in_rows += f'<div class="inv-item" style="--tier:{tier["color"]}"><span class="inv-name">{esc(r["from_user"])} → {esc(r["from_item"])}</span><span class="inv-meta">senin: {esc(r["to_item"])}</span><form method="post" action="/trade/respond" class="inline"><input type="hidden" name="csrf_token" value="{esc(csrf_tok)}"><input type="hidden" name="req_id" value="{r["id"]}"><input type="hidden" name="action" value="accept"><button class="button primary small" type="submit">Kabul</button></form><form method="post" action="/trade/respond" class="inline"><input type="hidden" name="csrf_token" value="{esc(csrf_tok)}"><input type="hidden" name="req_id" value="{r["id"]}"><input type="hidden" name="action" value="decline"><button class="ghost small" type="submit">Reddet</button></form></div>'
+                trade_form = f'''<section class="auth-card" style="max-width:720px;margin:0 auto;margin-top:26px;">
+<div class="eyebrow">TAKAS İSTE</div><h2>Skinini teklif et</h2>
+<form method="post" action="/trade/send" class="form">
+<input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+<label>Vereceğin Skin<select name="sender_inv_id" required>{offer_options or '<option disabled>Önce kasa aç, envanterin boş</option>'}</select></label>
+<label>İstediğin Skin<select name="receiver_inv_id" required>{want_options or '<option disabled>Pazarda/başka kullanıcıda skin yok</option>'}</select></label>
+<button class="button primary wide" type="submit">🔁 Takas İsteği Gönder</button>
+</form></section>'''
+                body = f"""<section class="page-head"><div><div class="eyebrow">TAKAS</div><h1>🔁 Takas Sistemi</h1><p class="lead">Skinini başka bir kullanıcının skinine teklif et. Karşı taraf <strong>onaylamadan</strong> takas gerçekleşmez.</p></div></section>
+<section class="auth-card" style="max-width:720px;margin:0 auto;"><div class="eyebrow">GELEN TAKASLAR</div><h2>Onay bekleyen istekler</h2><div class="inv-list">{in_rows or '<p class="muted">Gelen takas isteği yok.</p>'}</div></section>
+<section class="auth-card" style="max-width:720px;margin:0 auto;margin-top:20px;"><div class="eyebrow">GİDEN TAKASLAR</div><h2>Senin isteklerin</h2><div class="inv-list">{out_rows or '<p class="muted">Giden takas isteği yok.</p>'}</div></section>
+{trade_form}
+<p class="muted" style="text-align:center;margin-top:20px;"><a href="/inventory">🎒 Envanter →</a> · <a href="/market">🛒 Pazar →</a></p>"""
+            self.send_html(page("Takas", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/trade/cancel":
+            if not user:
+                self.redirect("/login")
+                return
+            flat = {k: v[0] if isinstance(v, list) else v for k, v in query.items()}
+            if not self.verify_csrf(flat):
+                self.redirect("/trade?msg=CSRF+hatasi&msg_type=error")
+                return
+            req_id = flat.get("cancel", "")
+            with db() as connection:
+                req = connection.execute("SELECT id, sender_id, status FROM trade_requests WHERE id=?", (req_id,)).fetchone()
+                if req and req["sender_id"] == user[1] and req["status"] == "pending":
+                    connection.execute("UPDATE trade_requests SET status='declined' WHERE id=?", (req["id"],))
+            self.redirect("/trade?msg=Istek+iptal+edildi&msg_type=success")
+            return
         elif path == "/inventory":
             if not user:
                 self.redirect("/login")
                 return
             with db() as connection:
-                rows = connection.execute("SELECT case_key, item_name, item_tier, item_value, created_at FROM case_inventory WHERE user_id=? ORDER BY created_at DESC LIMIT 60", (user[1],)).fetchall()
+                rows = connection.execute("SELECT id, case_key, item_name, item_tier, item_value, skin_key, created_at FROM case_inventory WHERE user_id=? ORDER BY created_at DESC LIMIT 60", (user[1],)).fetchall()
+                listed = set(r["inv_id"] for r in connection.execute("SELECT inv_id FROM market_listings WHERE seller_id=? AND status='active'", (user[1],)).fetchall())
             if not rows:
-                body = f"""<section class="page-head"><div><div class="eyebrow">ENVANTER</div><h1>🎒 Envanterin</h1><p class="lead">Kasalardan kazandığın ödüller burada birikir.</p></div></section>
+                body = f"""<section class="page-head"><div><div class="eyebrow">ENVANTER</div><h1>🎒 Envanterin</h1><p class="lead">Kasalardan kazandığın skinler burada birikir. İstediğini <a href="/market">Pazar</a>'da satabilir veya takas edebilirsin.</p></div></section>
 <section class="auth-card" style="max-width:560px;margin:0 auto;"><div class="empty-state"><h2>Envanter boş</h2><p class="muted">Henüz hiç kasa açmadın. <a href="/cases">Kasalar</a> sekmesinden şansını dene!</p></div></section>"""
                 self.send_html(page("Envanter", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
                 return
-            inv_cards = "".join(
-                f'<div class="inv-item" style="--tier:{TIER_INFO[r["item_tier"]]["color"]}"><span class="case-item-star">{TIER_INFO[r["item_tier"]]["star"]}</span><span class="inv-name">{esc(r["item_name"])}</span><span class="inv-meta">{time.strftime("%d.%m.%Y", time.localtime(r["created_at"]))}</span></div>'
-                for r in rows
-            )
-            body = f"""<section class="page-head"><div><div class="eyebrow">ENVANTER</div><h1>🎒 Envanterin</h1><p class="lead">Kasalardan kazandığın ödüller burada birikir.</p></div></section>
+            def inv_card(r):
+                tier = TIER_INFO[r["item_tier"]]
+                price = market_price(r["skin_key"] or r["item_name"])
+                chg = market_change_pct(r["skin_key"] or r["item_name"])
+                arrow = "▲" if chg >= 0 else "▼"
+                chg_cls = "up" if chg >= 0 else "down"
+                listed_tag = '<span class="inv-meta">📦 Pazardaysın</span>' if r["id"] in listed else ""
+                return f'<div class="inv-item" style="--tier:{tier["color"]}"><span class="case-item-star">{tier["star"]}</span><span class="inv-name">{esc(r["item_name"])}</span><span class="inv-meta">{time.strftime("%d.%m.%Y", time.localtime(r["created_at"]))} · {price:.2f} TL <span class="chg-{chg_cls}">{arrow}%{abs(chg):.1f}</span></span>{listed_tag}</div>'
+            inv_cards = "".join(inv_card(r) for r in rows)
+            body = f"""<section class="page-head"><div><div class="eyebrow">ENVANTER</div><h1>🎒 Envanterin</h1><p class="lead">Kasalardan kazandığın skinler burada birikir. İstediğini <a href="/market">Pazar</a>'da satabilir veya takas edebilirsin.</p></div></section>
 <section class="case-grid" style="max-width:720px;margin:0 auto;"><div class="inv-list">{inv_cards}</div></section>
-<p class="muted" style="text-align:center;margin-top:20px;"><a href="/cases">🎁 Yeni kasa aç →</a></p>"""
+<p class="muted" style="text-align:center;margin-top:20px;"><a href="/cases">🎁 Yeni kasa aç →</a> · <a href="/market">🛒 Pazara git →</a> · <a href="/trade">🔁 Takas yap →</a></p>"""
             self.send_html(page("Envanter", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
         elif path == "/login":
             q_text, c_val = generate_captcha()
@@ -2756,6 +2948,162 @@ closeBtn.addEventListener("click", () => {{
                 )
             self.send_json({"ok": True})
             return
+        elif path == "/market/list":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            if not rate_allowed(f"{ip}:market:{current[1]}", "market/list"):
+                self.redirect("/market?msg=Cok+hizli+islem+yapiyorsun&msg_type=error")
+                return
+            inv_id = fields.get("inv_id", "")
+            try:
+                price = float(fields.get("price", "0"))
+            except ValueError:
+                price = 0
+            if price < 1 or price > 100000:
+                self.redirect("/market?msg=Gecersiz+fiyat&msg_type=error")
+                return
+            with db() as connection:
+                inv = connection.execute("SELECT id, user_id, skin_key FROM case_inventory WHERE id=?", (inv_id,)).fetchone()
+                if not inv or inv["user_id"] != current[1]:
+                    self.redirect("/market?msg=Bu+skin+sana+ait+degil&msg_type=error")
+                    return
+                already = connection.execute("SELECT 1 FROM market_listings WHERE inv_id=? AND status='active'", (inv_id,)).fetchone()
+                if already:
+                    self.redirect("/market?msg=Skin+zaten+pazarda&msg_type=error")
+                    return
+                connection.execute(
+                    "INSERT INTO market_listings(seller_id, inv_id, skin_key, price, status, created_at) VALUES(?,?,?,?,'active',?)",
+                    (current[1], inv_id, inv["skin_key"], price, int(time.time())),
+                )
+            log_event(f"[PAZAR] '{username}' skinini {price:.2f} TL'ye pazara koydu.")
+            self.redirect("/market?msg=Skin+pazara+konuldu&msg_type=success")
+            return
+        elif path == "/market/buy":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            if not rate_allowed(f"{ip}:market:{current[1]}", "market/buy"):
+                self.redirect("/market?msg=Cok+hizli+islem+yapiyorsun&msg_type=error")
+                return
+            listing_id = fields.get("listing_id", "")
+            with db() as connection:
+                listing = connection.execute(
+                    """SELECT l.id AS lid, l.price, l.inv_id, l.seller_id, u2.username AS seller_name
+                       FROM market_listings l JOIN users u2 ON u2.id = l.seller_id
+                       WHERE l.id=? AND l.status='active'""", (listing_id,)
+                ).fetchone()
+                if not listing:
+                    self.redirect("/market?msg=Ilani+bulamadim&msg_type=error")
+                    return
+                if listing["seller_id"] == current[1]:
+                    self.redirect("/market?msg=Kendi+ilani+alamazsin&msg_type=error")
+                    return
+                buyer = connection.execute("SELECT balance FROM users WHERE id=?", (current[1],)).fetchone()
+                if float(buyer["balance"]) < listing["price"]:
+                    self.redirect("/market?msg=Yetersiz+bakiye&msg_type=error")
+                    return
+                connection.execute("UPDATE users SET balance=balance-? WHERE id=?", (listing["price"], current[1]))
+                connection.execute("UPDATE users SET balance=balance+? WHERE id=?", (listing["price"], listing["seller_id"]))
+                connection.execute("UPDATE case_inventory SET user_id=? WHERE id=?", (current[1], listing["inv_id"]))
+                connection.execute("UPDATE market_listings SET status='sold' WHERE id=?", (listing["lid"],))
+            log_event(f"[PAZAR] '{username}' {listing['seller_name']}'nun ilanını {listing['price']:.2f} TL'ye satın aldı.")
+            self.redirect("/market?msg=Skin+satin+alindi&msg_type=success")
+            return
+        elif path == "/market/cancel":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            listing_id = fields.get("listing_id", "")
+            with db() as connection:
+                listing = connection.execute("SELECT id, seller_id FROM market_listings WHERE id=?", (listing_id,)).fetchone()
+                if not listing or listing["seller_id"] != current[1]:
+                    self.redirect("/market?msg=Ilani+bulamadim&msg_type=error")
+                    return
+                connection.execute("UPDATE market_listings SET status='cancelled' WHERE id=?", (listing["id"],))
+            self.redirect("/market?msg=Ilani+gerisin+ciktin&msg_type=success")
+            return
+        elif path == "/trade/send":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            if not rate_allowed(f"{ip}:trade:{current[1]}", "trade/send"):
+                self.redirect("/trade?msg=Cok+hizli+islem+yapiyorsun&msg_type=error")
+                return
+            sender_inv_id = fields.get("sender_inv_id", "")
+            receiver_inv_id = fields.get("receiver_inv_id", "")
+            with db() as connection:
+                s_inv = connection.execute("SELECT id, user_id, item_name FROM case_inventory WHERE id=?", (sender_inv_id,)).fetchone()
+                r_inv = connection.execute("SELECT id, user_id, item_name FROM case_inventory WHERE id=?", (receiver_inv_id,)).fetchone()
+                if not s_inv or not r_inv:
+                    self.redirect("/trade?msg=Skin+bulunamadi&msg_type=error")
+                    return
+                if s_inv["user_id"] != current[1] or r_inv["user_id"] == current[1]:
+                    self.redirect("/trade?msg=Gecersiz+takas+secimi&msg_type=error")
+                    return
+                s_listed = connection.execute("SELECT 1 FROM market_listings WHERE inv_id=? AND status='active'", (sender_inv_id,)).fetchone()
+                r_listed = connection.execute("SELECT 1 FROM market_listings WHERE inv_id=? AND status='active'", (receiver_inv_id,)).fetchone()
+                if s_listed or r_listed:
+                    self.redirect("/trade?msg=Pazardaki+skinler+takas+edilemez&msg_type=error")
+                    return
+                connection.execute(
+                    "INSERT INTO trade_requests(sender_id, receiver_id, sender_inv_id, receiver_inv_id, status, created_at) VALUES(?,?,?,?,'pending',?)",
+                    (current[1], r_inv["user_id"], sender_inv_id, receiver_inv_id, int(time.time())),
+                )
+            log_event(f"[TAKAS] '{username}' takas isteği gönderdi.")
+            self.redirect("/trade?msg=Takas+istegi+gonderildi&msg_type=success")
+            return
+        elif path == "/trade/respond":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.send_html(page("Hata", '<section class="auth-card"><h1>403 Forbidden</h1><p class="muted">CSRF doğrulaması başarısız oldu.</p></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 403)
+                return
+            if not rate_allowed(f"{ip}:trade:{current[1]}", "trade/respond"):
+                self.redirect("/trade?msg=Cok+hizli+islem+yapiyorsun&msg_type=error")
+                return
+            req_id = fields.get("req_id", "")
+            action = fields.get("action", "")
+            accepted = False
+            with db() as connection:
+                req = connection.execute(
+                    """SELECT tr.id, tr.sender_id, tr.receiver_id, tr.sender_inv_id, tr.receiver_inv_id, tr.status
+                       FROM trade_requests tr WHERE tr.id=?""", (req_id,)
+                ).fetchone()
+                if not req or req["receiver_id"] != current[1] or req["status"] != "pending":
+                    self.redirect("/trade?msg=Istek+bulunamadi&msg_type=error")
+                    return
+                if action == "accept":
+                    s_inv = connection.execute("SELECT user_id FROM case_inventory WHERE id=?", (req["sender_inv_id"],)).fetchone()
+                    r_inv = connection.execute("SELECT user_id FROM case_inventory WHERE id=?", (req["receiver_inv_id"],)).fetchone()
+                    if not s_inv or not r_inv or s_inv["user_id"] != req["sender_id"] or r_inv["user_id"] != req["receiver_id"]:
+                        self.redirect("/trade?msg=Takas+gecersiz+oldu&msg_type=error")
+                        return
+                    connection.execute("UPDATE case_inventory SET user_id=? WHERE id=?", (req["receiver_id"], req["sender_inv_id"]))
+                    connection.execute("UPDATE case_inventory SET user_id=? WHERE id=?", (req["sender_id"], req["receiver_inv_id"]))
+                    connection.execute("UPDATE trade_requests SET status='accepted' WHERE id=?", (req["id"],))
+                    accepted = True
+                else:
+                    connection.execute("UPDATE trade_requests SET status='declined' WHERE id=?", (req["id"],))
+            if accepted:
+                log_event(f"[TAKAS] '{username}' takası onayladı → skinler değişti.")
+                self.redirect("/trade?msg=Takas+gerceklesti&msg_type=success")
+            else:
+                self.redirect("/trade?msg=Takas+reddedildi&msg_type=success")
+            return
         elif path == "/cases/open":
             if not current:
                 self.send_json({"ok": False, "error": "Giriş yapmalısın."}, 401)
@@ -2772,7 +3120,7 @@ closeBtn.addEventListener("click", () => {{
                 self.send_json({"ok": False, "error": "Kasa bulunamadı."}, 404)
                 return
             with db() as connection:
-                urow = connection.execute("SELECT balance, premium_until FROM users WHERE id=?", (current[1],)).fetchone()
+                urow = connection.execute("SELECT balance FROM users WHERE id=?", (current[1],)).fetchone()
                 if not urow:
                     self.send_json({"ok": False, "error": "Kullanıcı bulunamadı."}, 404)
                     return
@@ -2788,25 +3136,19 @@ closeBtn.addEventListener("click", () => {{
                         chosen = it
                         break
                     roll -= it["weight"]
-                if chosen["type"] == "balance":
-                    new_bal = balance - case["price"] + chosen["value"]
-                    connection.execute("UPDATE users SET balance=? WHERE id=?", (new_bal, current[1]))
-                    payload_balance = new_bal
-                else:
-                    base = max(int(time.time()), int(urow["premium_until"]))
-                    new_until = base + int(chosen["value"]) * 86400
-                    connection.execute("UPDATE users SET balance=balance-?, premium_until=? WHERE id=?", (case["price"], new_until, current[1]))
-                    payload_balance = None
-                connection.execute(
-                    "INSERT INTO case_inventory(user_id, case_key, item_name, item_tier, item_value, created_at) VALUES(?,?,?,?,?,?)",
-                    (current[1], case_key, chosen["name"], chosen["tier"], chosen["value"], int(time.time())),
+                new_bal = balance - case["price"]
+                connection.execute("UPDATE users SET balance=? WHERE id=?", (new_bal, current[1]))
+                inv_id = connection.insert_id(
+                    "INSERT INTO case_inventory(user_id, case_key, item_name, item_tier, item_value, skin_key, created_at) VALUES(?,?,?,?,?,?,?)",
+                    (current[1], case_key, chosen["name"], chosen["tier"], chosen["value"], chosen.get("skin", ""), int(time.time())),
                 )
             tier = TIER_INFO[chosen["tier"]]
             log_event(f"[KASA] '{username}' {case['name']} açtı → {chosen['name']} ({tier['name']}).")
             self.send_json({
                 "ok": True,
-                "item": {"name": chosen["name"], "tier": chosen["tier"]},
-                "balance": payload_balance,
+                "item": {"name": chosen["name"], "tier": chosen["tier"], "icon": chosen.get("icon", "🎁"), "skin": chosen.get("skin", ""), "value": chosen["value"]},
+                "balance": new_bal,
+                "inv_id": inv_id,
                 "case_name": case["name"],
             })
             return

@@ -211,6 +211,7 @@ td{color:#dbe9f5}
 .big-open{margin-left:auto}
 .case-items{display:flex;flex-wrap:wrap;gap:10px}
 .case-item{display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 10px;border:1px solid color-mix(in srgb,var(--tier) 40%,transparent);border-radius:12px;background:color-mix(in srgb,var(--tier) 8%,#0a101c);min-width:110px}
+.case-item-icon{font-size:26px}
 .case-item-star{color:var(--tier);font-size:12px}
 .case-item-name{font-size:12px;text-align:center;font-weight:600}
 .case-item-pct{font-size:11px;color:#8b95a8}
@@ -235,4 +236,22 @@ td{color:#dbe9f5}
 .inv-item{display:flex;align-items:center;gap:12px;padding:14px 16px;border:1px solid color-mix(in srgb,var(--tier) 40%,transparent);border-radius:12px;background:color-mix(in srgb,var(--tier) 7%,#0a101c)}
 .inv-name{font-weight:700;font-size:14px}
 .inv-meta{margin-left:auto;color:#8b95a8;font-size:12px}
-@media(max-width:600px){.big-open{margin-left:0;width:100%}.case-viewer-head{flex-direction:column;align-items:flex-start}}
+.inv-item .inv-meta{display:flex;align-items:center;gap:6px;margin-left:auto}
+.chg-up{color:#4ade80;font-weight:700;font-size:12px}
+.chg-down{color:#ff6b6b;font-weight:700;font-size:12px}
+.button.small,.ghost.small{padding:6px 12px;font-size:12px;margin-left:auto}
+.link{color:#65d9ff}
+.mkt-table{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#0a0f1a}
+.mkt-head{display:grid;grid-template-columns:1.6fr 1.2fr .9fr .7fr .7fr;gap:10px;padding:12px 16px;font-size:11px;letter-spacing:1px;color:#8b95a8;border-bottom:1px solid var(--line);text-transform:uppercase}
+.mkt-row{display:grid;grid-template-columns:1.6fr 1.2fr .9fr .7fr .7fr;gap:10px;align-items:center;padding:12px 16px;border-bottom:1px solid #ffffff0d}
+.mkt-row:last-child{border-bottom:none}
+.mkt-icon{font-size:26px;text-align:center}
+.mkt-name{display:flex;flex-direction:column;gap:2px}
+.mkt-name b{font-size:13px}
+.mkt-name small{color:var(--tier);font-size:11px}
+.mkt-spark-cell{display:flex;align-items:center}
+.mkt-spark{display:block;max-width:120px;height:32px}
+.mkt-price{font-weight:800;font-size:14px}
+.mkt-base{font-size:11px;color:#8b95a8}
+@media(max-width:900px){.mkt-head,.mkt-row{grid-template-columns:1.5fr 1fr .8fr .8fr}.mkt-spark-cell{display:none}}
+@media(max-width:600px){.big-open{margin-left:0;width:100%}.case-viewer-head{flex-direction:column;align-items:flex-start}.mkt-head,.mkt-row{grid-template-columns:1.4fr .8fr .8fr}.mkt-base{display:none}}
