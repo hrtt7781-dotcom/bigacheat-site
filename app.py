@@ -97,6 +97,7 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "inventory/sell": (5, 60),
     "trade/send": (5, 60),
     "trade/respond": (10, 60),
+    "chat/support": (30, 60),
 }
 
 # CS2 benzeri kasa sistemi
@@ -233,6 +234,71 @@ def market_change_pct(skin_key: str, window: float = 3600.0) -> float:
     if prev == 0:
         return 0.0
     return round((cur - prev) / prev * 100.0, 2)
+
+
+# ---------------------------------------------------------------------------
+# DESTEK BOTU (kural tabanlı, ücretsiz): site hakkında bilgilendirme yapar.
+# SORUN/konu anahtar kelimelerine göre en uygun cevabı döndürür.
+# ---------------------------------------------------------------------------
+BOT_RULES: list[tuple[tuple[str, ...], str]] = [
+    (("kasa", "kasayı", "kasalar", "açılım", "açma", "kumbara", "mavzer", "spektrum", "imparator", "efsane"),
+     "🎁 KASA SİSTEMİ\nKasalar 40-500 TL arasında değişir. Açtığında 3 tür ödül düşebilir:\n• Skin (Pazar'da satılabilir/takas edilebilir)\n• 💰 Bakiye (anında hesabına eklenir)\n• 👑 Premium gün (ücretli hilelere erişim)\n\nKasa açmak için: 🎁 Kasalar sekmesi → kasayı seç → 'Kasayı Aç'. Kazandığın skinler 🎒 Envanter'e düşer. İyi şanslar!"),
+    (("bakiye", "para", "tl", "yükle", "ödeme", "ödemek", "satın al", "kod", "havale", "yükleyeceğim"),
+     "💰 BAKİYE\nBakiye yüklemek için 'Bakiye Yükle' sekmesini kullan (STEAM/ININAL/Papara gibi platformlardan kod bildirebilirsin).\n\n• Bakiye kasa açmak, çark ve premium için kullanılır.\n• Onaylanan kodlar otomatik bakiyene eklenir.\n• Kasa açtıkça kazandığın skinleri satıp bakiye de kazanabilirsin!"),
+    (("premium", "ücretli", "hile", "hileleri", "paylı", "vip", "üyelik", "süreli"),
+     "💎 PREMIUM / ÜCRETLİ HİLELER\n'Ücretli Hileler' sekmesinde özel sürümlere süreli erişim satın alırsın:\n• Bakiyenle gün bazlı erişim açılır (ör. 30 gün).\n• Kasalardan '👑 Premium gün' düşebilir!\n• Premium üyeler indirme alanında özel dosyaları görür.\n\nSatın almak için: 💎 Ücretli Hileler → plan seç → öde."),
+    (("pazar", "market", "satmak", "satar", "satış", "satayım", "alıcı", "alım", "satın", "fiyat", "listing", "ilan"),
+     "🛒 PAZAR (MARKET)\nSkinlerin canlı fiyatı sürekli dalgalanır (1 saatlik döngü + anlık oynama).\n\nSATMAK İÇİN:\n• 🎒 Envanter'den '💸 Hızlı Sat' → anında canlı fiyata satarsın.\n• Ya da 'Pazara Koy' ile istediğin fiyatı gir (1-100.000 TL).\n\nALMAK İÇİN:\n• 🛒 Pazar sekmesinde satılık ilanlardan 'Satın Al'.\n\nİpucu: Fiyat grafiği düşükken al, yükselirken sat!"),
+    (("takas", "değiş", "değişim", "swap", "takaslık", "mübadele"),
+     "🔁 TAKAS\nEnvanterindeki skinleri başka kullanıcının skinleriyle takas edebilirsin:\n\n1. 🔁 Takas sekmesine git\n2. 'Vereceğin Skin' ve 'İstediğin Skin'i seç\n3. İsteği gönder — karşı taraf onaylamadan takas GERÇEKLEŞMEZ!\n\nNot: Pazardaki skinler takas edilemez, önce geri çek."),
+    (("envanter", "eşya", "eşyalar", "skin", "skins", "item", "itemler", "çantam", "çantada"),
+     "🎒 ENVANTER\nKasalardan kazandığın tüm skinler burada birikir.\n\n• Her skinin canlı fiyatı ve değişim yüzdesi görünür.\n• '💸 Hızlı Sat' → canlı fiyata anında satar.\n• 'Pazara Koy' → istediğin fiyata listeler.\n• '📦 Pazardaysın' etiketi = şu an ilanda.\n\nEnvanter boşsa önce 🎁 Kasa aç!"),
+    (("çark", "wheel", "çevir", "döndür", "spin", "şans"),
+     "🎡 ÇARK\nBakiye karşılığı çark çevirip TL ödülü kazanabilirsin:\n\n• Gümüş Çark: düşük maliyet, 10-275 TL ödüller.\n• Altın Çark: 25-1000 TL arası daha büyük ödüller.\n\nHer çevirişte ödül anında bakiyene eklenir. Şansını dene!"),
+    (("günlük", "daily", "günlük ödül", "hediye", "bedava", "ücretsiz", "free", "claim"),
+     "🎁 GÜNLÜK ÖDÜL\nHer gün ücretsiz bakiye kazanabilirsin:\n\n• 'Günlük Ödül' sekmesine gir → 'Al' de.\n• Her gün düzenli alırsan seri ödülü artar!\n• Bir gün kaçırırsan seri sıfırlanır, üzülme tekrar başla.\n\nAyrıca kasalardan bedava bakiye/premium düşebilir!"),
+    (("profil", "avatar", "foto", "bio", "durum", "hakkımda", "link"),
+     "👤 PROFİL\nProfilini kişiselleştirebilirsin:\n\n• Profil sayfan: avatar fotoğrafı, bio, durum metni ve sosyal link.\n• Arkadaş ekleyip özel mesajlaşabilirsin (💬 Sohbet).\n• Nav'da kullanıcı adına tıklayınca profilin açılır."),
+    (("arkadaş", "friends", "ekle", "arkadaşlık", "davet"),
+     "👥 ARKADAŞLAR\nArkadaş sistemimiz var:\n\n• Profil sayfasından 'Arkadaşlık isteği gönder'.\n• Karşı taraf kabul edince arkadaş olursunuz.\n• Arkadaşlarınla 💬 Sohbet veya özel mesajla konuş.\n• Takas isteği de gönderebilirsin!"),
+    (("sohbet", "chat", "mesaj", "konuş", "dm", "yazış"),
+     "💬 SOHBET\nTopluluk sohbeti:\n\n• Genel sohbet herkese açık (10 sn mesaj aralığı).\n• Arkadaşlarına özel mesaj (DM) gönderebilirsin.\n• Mesajlarda emoji kullanabilirsin.\n\nSaygılı ol, küfür ve spam yasak!"),
+    (("indir", "indirme", "loader", "çalıştır", "setup", "kurulum", "dosya", "zip", "virüs", "antivirüs"),
+     "📦 İNDİRME / LOADER\nİndirme işlemleri:\n\n• 'Ücretli Hileler' veya ana sayfadaki sürüm alanından indir.\n• Premium olmayanlar ücretsiz sürümü kullanır.\n• Antivirüs bazen uyarı verebilir — bu hile dosyalarında normaldir, yine de kendi riskinle indir.\n• ZIP şifreliyse şifreyi yöneticiden öğren.\n\nSorun yaşarsan detaylı yaz (hangi adımda ne oluyor)."),
+    (("kayıt", "kaydol", "üye ol", "hesap", "şifre", "giriş", "login", "register", "kullanıcı adı", "nick"),
+     "👤 HESAP\nHesap işlemleri:\n\n• Kayıt: kullanıcı adı (harf/rakam/_) + en az 8 karakter şifre + robot doğrulaması.\n• Giriş: kullanıcı adı + şifre + robot doğrulaması.\n• Şifreni unuttuysan yöneticiden destek iste.\n\nAynı kullanıcı adıyla birden fazla hesap açılamaz."),
+    (("admin", "yönetici", "yetkili", "sahip", "patron", "mod", "ban", "yardım et", "insan", "gerçek kişi", "canlı destek"),
+     "🙋 CANLI DESTEK\nBen otomatik bir destek botuyum (kural tabanlı). Daha fazla yardım istersen yöneticiye ulaşabilirsin.\n\n• 'Yönetim' sekmesinden admin girişi var ama o herkese açık değil.\n• Sorununu detaylı yaz, ben en iyi cevabı bulmaya çalışayım.\n• Ya da site üzerinden yöneticiye ulaşmayı dene (profil/sohbet)."),
+    (("merhaba", "selam", "hey", "sa", "hello", "hi", "naber", "nasılsın", "iyi misin"),
+     "Selam! 👋 Ben Biga Cheat'in destek botuyum. Kasa sistemi, bakiye, premium, Pazar, takas, envanter ve daha fazlası hakkında soru sorabilirsin. Nasıl yardımcı olabilirim?"),
+    (("teşekkür", "sağol", "saol", "eyvallah", "thanks", "thank", "çok iyi", "harika", "süpersin"),
+     "Rica ederim! 😊 Başka bir sorun olursa buradayım. İyi oyunlar! 🎮"),
+    (("kasa açılmıyor", "açılmıyor", "hata", "bug", "bozuk", "çalışmıyor", "404", "502", "yüklenmiyor", "yavaş"),
+     "🔧 SORUN GİDERME\nBir hata mı var? Şunları dene:\n\n1. Sayfayı yenile (F5) — geçici hatalar genelde düzelir.\n2. Başka tarayıcı/cache temizliği dene.\n3. Bakiye yetersizse kasa açılmaz (bakiyeni kontrol et).\n4. Çok hızlı işlem yapıyorsan 'çok hızlı' uyarısı alırsın — 1 dk bekle.\n\nHâlâ çözülmediyse detaylı olarak yaz: hangi sayfada, ne yapınca ne oluyor?"),
+]
+
+BOT_FALLBACK = "Bu konuda net bir bilgim yok 😅 Şunlardan birini sorabilirsin:\n\n• 🎁 Kasa sistemi nasıl çalışır?\n• 💰 Bakiye nasıl yüklenir?\n• 💎 Premium/ücretli hileler nedir?\n• 🛒 Pazar'da nasıl satarım/alırım?\n• 🔁 Takas nasıl yapılır?\n• 🎒 Envanterden nasıl satarım?\n• 🎡 Çark ve Günlük Ödül nedir?\n• 📦 İndirme/loader sorunları\n\nYa da sorunu detaylı yaz, en iyi eşleşmeyi bulayım!"
+
+
+def bot_reply(msg: str) -> str:
+    def norm(s: str) -> str:
+        return s.lower().replace("ı", "i").replace("ğ", "g").replace("ü", "u").replace("ş", "s").replace("ö", "o").replace("ç", "c").replace("'", " ").replace("?", " ").replace("!", " ")
+    nm = norm(msg)
+    words = [w for w in nm.split() if len(w) > 1]
+    best_score = 0
+    best_reply = ""
+    for keywords, reply in BOT_RULES:
+        score = 0
+        for k in keywords:
+            nk = norm(k)
+            if nk in nm:
+                score += 2
+            elif any(nk in w for w in words):
+                score += 1
+        if score > best_score:
+            best_score = score
+            best_reply = reply
+    return best_reply if best_score > 0 else BOT_FALLBACK
 
 
 def rate_allowed(ip: str, action: str) -> bool:
@@ -979,6 +1045,76 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
             }}
         }});
     }}
+</script>
+<div class="bot-widget" id="bot-widget">
+  <button class="bot-fab" id="bot-fab" type="button" title="Destek botu">🤖</button>
+  <div class="bot-panel" id="bot-panel" style="display:none;">
+    <div class="bot-head"><span>🤖 Biga Bot</span><button class="bot-close" id="bot-close" type="button">✕</button></div>
+    <div class="bot-msgs" id="bot-msgs"><div class="bot-msg bot-in">Selam! 👋 Ben Biga Cheat'in destek botuyum. Kasa, bakiye, premium, Pazar, takas ve daha fazlası hakkında soru sorabilirsin.</div></div>
+    <form class="bot-form" id="bot-form">
+      <input type="text" id="bot-input" placeholder="Sorunu yaz..." autocomplete="off" maxlength="300">
+      <button type="submit" class="button primary small">Gönder</button>
+    </form>
+  </div>
+</div>
+<script>
+(function() {{
+  const fab = document.getElementById("bot-fab");
+  const panel = document.getElementById("bot-panel");
+  const closeBtn = document.getElementById("bot-close");
+  const msgs = document.getElementById("bot-msgs");
+  const form = document.getElementById("bot-form");
+  const input = document.getElementById("bot-input");
+  if (!fab || !panel) return;
+  fab.addEventListener("click", () => {{
+    const open = panel.style.display !== "none";
+    panel.style.display = open ? "none" : "flex";
+    if (!open) {{
+      input.focus();
+      msgs.scrollTop = msgs.scrollHeight;
+    }}
+  }});
+  closeBtn.addEventListener("click", () => {{ panel.style.display = "none"; }});
+  form.addEventListener("submit", (e) => {{
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    const div = document.createElement("div");
+    div.className = "bot-msg bot-out";
+    div.textContent = text;
+    msgs.appendChild(div);
+    msgs.scrollTop = msgs.scrollHeight;
+    const typing = document.createElement("div");
+    typing.className = "bot-msg bot-in bot-typing";
+    typing.textContent = "yazıyor...";
+    msgs.appendChild(typing);
+    msgs.scrollTop = msgs.scrollHeight;
+    fetch("/api/bot", {{
+      method: "POST",
+      headers: {{"Content-Type": "application/json"}},
+      body: JSON.stringify({{msg: text}})
+    }})
+    .then(r => r.json())
+    .then(d => {{
+      typing.remove();
+      const reply = document.createElement("div");
+      reply.className = "bot-msg bot-in";
+      reply.style.whiteSpace = "pre-wrap";
+      reply.textContent = d.reply || "Bir şeyler ters gitti, tekrar dene.";
+      msgs.appendChild(reply);
+      msgs.scrollTop = msgs.scrollHeight;
+    }})
+    .catch(() => {{
+      typing.remove();
+      const reply = document.createElement("div");
+      reply.className = "bot-msg bot-in";
+      reply.textContent = "Bağlantı hatası. Lütfen tekrar dene.";
+      msgs.appendChild(reply);
+      msgs.scrollTop = msgs.scrollHeight;
+    }});
+  }});
+}})();
 </script>
 </body></html>"""
 
@@ -1811,9 +1947,9 @@ function startRoll(ck, d) {{
 
   function stepDelay(i) {{
     const p = i / (CELLS - 1);
-    if (p < 0.45) return 24 + Math.random() * 14;
+    if (p < 0.45) return 58 + Math.random() * 24;
     const q = (p - 0.45) / 0.55;
-    return 40 + Math.pow(q, 2.6) * 620;
+    return 90 + Math.pow(q, 2.6) * 720;
   }}
 
   function tickSoundFreq(i) {{
@@ -2883,6 +3019,17 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
         ip = self.client_ip()
         if path in ("/register", "/login", "/admin/login", "/payment/submit", "/wheel/spin") and not rate_allowed(ip, path.strip("/")):
             self.rate_limit_response()
+            return
+        if path == "/api/bot":
+            flat = {k: v[0] if isinstance(v, list) else v for k, v in fields.items()}
+            msg = (flat.get("msg") or "").strip()[:300]
+            if not msg:
+                self.send_json({"reply": "Ne yazmak istersin? Kasa, bakiye, premium, Pazar, takas gibi konularda soru sorabilirsin."})
+                return
+            if not rate_allowed(f"{ip}:bot:{current[1] if current else ip}", "chat/support"):
+                self.send_json({"reply": "Çok hızlı yazıyorsun. Biraz bekleyip tekrar dene (dakikada 10 mesaj)."})
+                return
+            self.send_json({"reply": bot_reply(msg)})
             return
         if path == "/paid-cheats/purchase":
             if not current:
