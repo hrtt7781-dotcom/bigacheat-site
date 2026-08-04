@@ -1016,12 +1016,17 @@ class Handler(BaseHTTPRequestHandler):
 {expiry_box}
 <section class="project-list">{file_cards or '<div class="empty-state"><h2>İçerik hazır değil</h2><p class="muted">Yönetici henüz premium içerik yüklemedi.</p></div>'}</section>
 <section class="auth-card" style="margin-top: 30px; max-width: none;">
-    <div class="eyebrow">İNDİRME</div>
-    <h2>Premium Paket</h2>
-    <p class="muted" style="margin: 10px 0 18px;">İndireceğin arşiv <strong>kişiye özel</strong> üretilir: içinde {esc(username or "?")} adına kayıtlı <strong>LICENSE.txt</strong> ve benzersiz lisans numarası bulunur. Bu numara her indirmede kaydedilir; dosya paylaşılırsa lisans sahibi tespit edilir ve premium erişimi iptal edilir.</p>
-    <a class="button primary wide" href="/paid-cheats/download">Tümünü indir (filigranlı ZIP)</a>
+    <div class="eyebrow">ÇALIŞTIRMA</div>
+    <h2>Premium Hile Nasıl Çalıştırılır?</h2>
+    <p class="muted" style="margin: 10px 0 18px;">Premium hile web üzerinden dosya indirme ile değil, <strong>Biga Cheat Loader</strong> üzerinden çalıştırılır. Hesabınla giriş yapman yeterli — dosya launcher tarafından geçici olarak yönetilir, ayrıca masaüstüne inmez.</p>
+    <div class="steps-grid" style="grid-template-columns: repeat(2, 1fr); margin-top: 6px;">
+        <div class="step"><div class="step-num">1</div><h3>Loader'ı İndir</h3><p><a href="/download" style="color: #ffd76a;">Buradan</a> güncel loader'ı indir ve çalıştır.</p></div>
+        <div class="step"><div class="step-num">2</div><h3>Giriş Yap</h3><p>Loader'da site kullanıcı adın ve şifrenle giriş yap.</p></div>
+        <div class="step"><div class="step-num">3</div><h3>Ücretli Hile Seç</h3><p>Premium üyeliğin aktifse Ücretli Hile sekmesi açılır.</p></div>
+        <div class="step"><div class="step-num">4</div><h3>BAŞLAT'a Bas</h3><p>Premium paket launcher üzerinden indirilir ve çalışır.</p></div>
+    </div>
 </section>
-<section class="auth-card" style="margin-top: 30px; max-width: none;"><div class="eyebrow">KURULUM</div><h2>Nasıl Kullanılır?</h2><pre style="white-space: pre-wrap; background: #ffffff04; border: 1px solid var(--line); border-radius: 10px; padding: 16px; font-size: 13px; color: #cfd8e3;">{esc(readme_txt) if readme_txt else 'Kurulum notu yakında eklenecek.'}</pre></section>"""
+<section class="auth-card" style="margin-top: 30px; max-width: none;"><div class="eyebrow">KURULUM NOTU</div><h2>Dikkat</h2><pre style="white-space: pre-wrap; background: #ffffff04; border: 1px solid var(--line); border-radius: 10px; padding: 16px; font-size: 13px; color: #cfd8e3;">{esc(readme_txt) if readme_txt else 'Kurulum notu yakında eklenecek.'}</pre></section>"""
             self.send_html(page("Ücretli Hileler", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
         elif path == "/paid-cheats/download":
             if not user:
