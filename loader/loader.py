@@ -182,7 +182,7 @@ class LoaderApp:
         title = tk.Label(container, text="BIGA CHEAT", fg=self.GOLD, bg=self.BG, font=("Segoe UI", 28, "bold"))
         title.pack(pady=(0, 0))
         tk.Frame(container, bg=self.GOLD_DIM, height=1).pack(fill="x", pady=(4, 8))
-        sub = tk.Label(container, text="PREMIUM CS2 LOADER", fg=self.MUTED, bg=self.BG, font=("Segoe UI", 10))
+        sub = tk.Label(container, text="ULTRA BIGA CS2 LOADER", fg=self.GOLD, bg=self.BG, font=("Segoe UI", 10, "bold"))
         sub.pack(pady=(0, 2))
 
         self.user_label = tk.Label(container, text="KULLANICI ADI", fg=self.MUTED, bg=self.BG, font=("Segoe UI", 9, "bold"))
@@ -217,12 +217,22 @@ class LoaderApp:
             text="👑\nÜCRETLİ HİLE\nPremium paket",
             command=lambda: self.select_tab("paid"),
             bg=self.CARD2, fg=self.GOLD, activebackground="#4a3a00", activeforeground=self.GOLD,
-            relief="flat", font=("Segoe UI", 11, "bold"), cursor="hand2",
+            relief="flat", font=("Segoe UI", 10, "bold"), cursor="hand2",
             disabledforeground="#5b7085", justify="center",
-            width=14, padx=10, pady=16,
+            width=10, padx=5, pady=12,
         )
-        self.tab_btn_free.pack(side="left", expand=True, fill="both", padx=(0, 6), ipady=12)
-        self.tab_btn_paid.pack(side="left", expand=True, fill="both", padx=(6, 0), ipady=12)
+        self.tab_btn_ultra = tk.Button(
+            self.tab_frame,
+            text="💎\nULTRA BIGA\nUltra Biga Cheat",
+            command=lambda: self.select_tab("ultra"),
+            bg="#2a0f3d", fg="#d8b4fe", activebackground="#4c1d95", activeforeground="#d8b4fe",
+            relief="flat", font=("Segoe UI", 10, "bold"), cursor="hand2",
+            disabledforeground="#5b7085", justify="center",
+            width=10, padx=5, pady=12,
+        )
+        self.tab_btn_free.pack(side="left", expand=True, fill="both", padx=(0, 3), ipady=8)
+        self.tab_btn_paid.pack(side="left", expand=True, fill="both", padx=(3, 3), ipady=8)
+        self.tab_btn_ultra.pack(side="left", expand=True, fill="both", padx=(3, 0), ipady=8)
 
         self.start_btn = tk.Button(container, text="BAŞLAT", command=self.start_selected, bg=self.GOLD, fg="#0a0f16", activebackground="#ffe44d", activeforeground="#0a0f16", relief="flat", font=("Segoe UI", 13, "bold"), cursor="hand2")
         self.start_btn.pack_forget()
@@ -288,12 +298,21 @@ class LoaderApp:
             borderwidth=2,
             highlightthickness=0,
         )
+        ultra_selected = selected == "ultra"
+        self.tab_btn_ultra.config(
+            state="normal" if paid_enabled else "disabled",
+            bg="#6b21a8" if (ultra_selected and paid_enabled) else "#2a0f3d",
+            fg="#e9d5ff",
+            relief="solid" if (ultra_selected and paid_enabled) else "flat",
+            borderwidth=2,
+            highlightthickness=0,
+        )
         self.start_btn.config(state="normal" if (paid_enabled or selected == "free") else "disabled", text="BAŞLAT")
         self.start_btn.pack(fill="x", pady=(14, 0))
 
     def select_tab(self, tab):
-        if tab == "paid" and not getattr(self, "premium", False):
-            messagebox.showwarning(APP_NAME, "Ücretli Hile için premium üyelik gerekli. Bakiye yükleyip Ücretli Hileler sayfasından erişim satın al.")
+        if (tab == "paid" or tab == "ultra") and not getattr(self, "premium", False):
+            messagebox.showwarning(APP_NAME, "Premium / Ultra Hile için üyeliğin gerekli. Bakiye yükleyip siteden erişim satın al.")
             return
         self.selected = tab
         self.refresh_tabs()
