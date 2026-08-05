@@ -1465,6 +1465,44 @@ def _migrate(connection) -> None:
                 )"""
             )
             connection.execute("ALTER TABLE payments ADD COLUMN IF NOT EXISTS platform TEXT NOT NULL DEFAULT 'STEAM'")
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS cases_opened INTEGER NOT NULL DEFAULT 0")
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS total_won DOUBLE PRECISION NOT NULL DEFAULT 0")
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code TEXT NOT NULL DEFAULT ''")
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by BIGINT NOT NULL DEFAULT 0")
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS wheel_spins INTEGER NOT NULL DEFAULT 0")
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_claims INTEGER NOT NULL DEFAULT 0")
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS market_sells INTEGER NOT NULL DEFAULT 0")
+            connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS market_buys INTEGER NOT NULL DEFAULT 0")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS notifications (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    body TEXT NOT NULL,
+                    read INTEGER NOT NULL DEFAULT 0,
+                    created_at BIGINT NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS completed_tasks (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL REFERENCES users(id),
+                    task_id TEXT NOT NULL,
+                    claimed INTEGER NOT NULL DEFAULT 0,
+                    created_at BIGINT NOT NULL,
+                    UNIQUE(user_id, task_id)
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS coinflip_games (
+                    id BIGSERIAL PRIMARY KEY,
+                    creator_id BIGINT NOT NULL REFERENCES users(id),
+                    joiner_id BIGINT NOT NULL DEFAULT 0,
+                    amount DOUBLE PRECISION NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'waiting',
+                    winner_id BIGINT NOT NULL DEFAULT 0,
+                    created_at BIGINT NOT NULL
+                )"""
+            )
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS logs (
                     id BIGSERIAL PRIMARY KEY,
@@ -1539,6 +1577,13 @@ def _migrate(connection) -> None:
                 pass
 
             for col, ddl in (("avatar", "TEXT NOT NULL DEFAULT ''"), ("bio", "TEXT NOT NULL DEFAULT ''"), ("profile_link", "TEXT NOT NULL DEFAULT ''"), ("status_text", "TEXT NOT NULL DEFAULT ''")):
+                try:
+                    connection.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
+                    connection.commit()
+                except sqlite3.OperationalError:
+                    pass
+
+            for col, ddl in (("cases_opened", "INTEGER NOT NULL DEFAULT 0"), ("total_won", "REAL NOT NULL DEFAULT 0"), ("referral_code", "TEXT NOT NULL DEFAULT ''"), ("referred_by", "INTEGER NOT NULL DEFAULT 0"), ("wheel_spins", "INTEGER NOT NULL DEFAULT 0"), ("daily_claims", "INTEGER NOT NULL DEFAULT 0"), ("market_sells", "INTEGER NOT NULL DEFAULT 0"), ("market_buys", "INTEGER NOT NULL DEFAULT 0")):
                 try:
                     connection.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
                     connection.commit()
@@ -1697,6 +1742,39 @@ def _migrate(connection) -> None:
                     FOREIGN KEY(user_id) REFERENCES users(id)
                 )"""
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    body TEXT NOT NULL,
+                    read INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS completed_tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    task_id TEXT NOT NULL,
+                    claimed INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    UNIQUE(user_id, task_id),
+                    FOREIGN KEY(user_id) REFERENCES users(id)
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS coinflip_games (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    creator_id INTEGER NOT NULL,
+                    joiner_id INTEGER NOT NULL DEFAULT 0,
+                    amount REAL NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'waiting',
+                    winner_id INTEGER NOT NULL DEFAULT 0,
+                    created_at INTEGER NOT NULL,
+                    FOREIGN KEY(creator_id) REFERENCES users(id)
+                )"""
+            )
         if connection.execute("SELECT COUNT(*) AS n FROM updates").fetchone()["n"] == 0:
             connection.execute(
                 "INSERT INTO updates(title, body, tag, created_at) VALUES(?,?,?,?)",
@@ -1764,6 +1842,104 @@ def db():
 def log_event(event: str) -> None:
     with db() as connection:
         connection.execute("INSERT INTO logs(event, created_at) VALUES(?,?)", (event, int(time.time())))
+
+
+# ---------------------------------------------------------------------------
+# GÖREV / BAŞARIM SİSTEMİ: tamamlanınca claim edilip bakiye ödülü alınır.
+# ---------------------------------------------------------------------------
+TASKS: dict[str, dict] = {
+    "case_1":     {"name": "İlk Kasayı Aç",       "desc": "1 kasa aç",            "reward": 10,  "icon": "🎁"},
+    "case_5":     {"name": "Kasa Avcısı",          "desc": "5 kasa aç",            "reward": 30,  "icon": "🎰"},
+    "case_20":    {"name": "Kasa Kralı",           "desc": "20 kasa aç",           "reward": 100, "icon": "👑"},
+    "wheel_1":    {"name": "İlk Çark",             "desc": "1 çark çevir",         "reward": 10,  "icon": "🎡"},
+    "wheel_5":    {"name": "Çark Ustası",          "desc": "5 çark çevir",         "reward": 40,  "icon": "🌀"},
+    "daily_1":    {"name": "Günlük Rutin",         "desc": "1 günlük ödül al",     "reward": 10,  "icon": "📅"},
+    "daily_3":    {"name": "Düzenli",              "desc": "3 günlük ödül al",     "reward": 40,  "icon": "🔥"},
+    "sell_1":     {"name": "İlk Satış",            "desc": "1 skin hızlı sat",     "reward": 15,  "icon": "💸"},
+    "sell_5":     {"name": "Tüccar",               "desc": "5 skin sat (hızlı veya pazar)", "reward": 60, "icon": "🛒"},
+    "market_buy": {"name": "Alıcı",                "desc": "Pazardan 1 skin al",   "reward": 20,  "icon": "🛍️"},
+    "trade_1":    {"name": "Takasçı",              "desc": "1 takas tamamla",      "reward": 25,  "icon": "🔁"},
+    "friend_1":   {"name": "Sosyal Kelebek",       "desc": "1 arkadaş ekle",       "reward": 15,  "icon": "👥"},
+    "refer_1":    {"name": "Elçi",                 "desc": "1 arkadaş davet et",   "reward": 30,  "icon": "📣"},
+    "premium_1":  {"name": "VIP Sahibi",           "desc": "Premium satın al",     "reward": 50,  "icon": "💎"},
+    "coinflip_1": {"name": "Kumar Tutkunu",        "desc": "1 coinflip oyna",      "reward": 20,  "icon": "🪙"},
+}
+
+
+def notify(user_id: int, body: str) -> None:
+    with db() as connection:
+        connection.execute("INSERT INTO notifications(user_id, body, read, created_at) VALUES(?,?,0,?)",
+                           (user_id, body, int(time.time())))
+
+
+def task_progress(user_id: int) -> dict:
+    """Her görev için mevcut ilerlemeyi hesaplar (users kolonlarından)."""
+    with db() as connection:
+        user = connection.execute(
+            "SELECT cases_opened, wheel_spins, daily_claims, market_sells, market_buys, daily_streak, is_premium, premium_until, referred_by "
+            "FROM users WHERE id=?", (user_id,)).fetchone()
+        trades = connection.execute(
+            "SELECT COUNT(*) AS n FROM trade_requests WHERE status='accepted' AND (sender_id=? OR receiver_id=?)",
+            (user_id, user_id)).fetchone()
+        friends = connection.execute(
+            "SELECT COUNT(*) AS n FROM friends WHERE user_id=? OR friend_id=?", (user_id, user_id)).fetchone()
+        coinflips = connection.execute(
+            "SELECT COUNT(*) AS n FROM coinflip_games WHERE status='completed' AND (creator_id=? OR joiner_id=?)",
+            (user_id, user_id)).fetchone()
+        referred = connection.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE referred_by=?", (user_id,)).fetchone()
+    if not user:
+        return {tid: 0 for tid in TASKS}
+    return {
+        "case_1": min(1, user["cases_opened"]), "case_5": min(5, user["cases_opened"]), "case_20": min(20, user["cases_opened"]),
+        "wheel_1": min(1, user["wheel_spins"]), "wheel_5": min(5, user["wheel_spins"]),
+        "daily_1": min(1, user["daily_claims"]), "daily_3": min(3, user["daily_claims"]),
+        "sell_1": min(1, user["market_sells"]), "sell_5": min(5, user["market_sells"]),
+        "market_buy": min(1, user["market_buys"]), "trade_1": min(1, trades["n"]),
+        "friend_1": min(1, friends["n"]), "refer_1": min(1, referred["n"]),
+        "premium_1": 1 if (user["is_premium"] or (user["premium_until"] or 0) > int(time.time())) else 0,
+        "coinflip_1": min(1, coinflips["n"]),
+    }
+
+
+def task_status(user_id: int) -> dict:
+    """Her görev için: ilerleme, tamamlandı mı, claim edildi mi."""
+    progress = task_progress(user_id)
+    with db() as connection:
+        rows = connection.execute(
+            "SELECT task_id, claimed FROM completed_tasks WHERE user_id=?", (user_id,)).fetchall()
+    done = {r["task_id"]: r["claimed"] for r in rows}
+    out = {}
+    for tid, cfg in TASKS.items():
+        target = int(tid.rsplit("_", 1)[1]) if tid.rsplit("_", 1)[1].isdigit() else 1
+        completed = progress[tid] >= target
+        out[tid] = {
+            **cfg, "progress": progress[tid],
+            "done": completed and tid in done, "claimed": bool(done.get(tid)),
+            "ready": completed and not bool(done.get(tid)),
+        }
+    return out
+
+
+def check_task(user_id: int, task_id: str) -> None:
+    """Görev tamamlanmışsa kayda geçirir (claim edilmediyse bildirim atar)."""
+    with db() as connection:
+        progress = task_progress(user_id)
+        if progress[task_id] < 1:
+            return
+        row = connection.execute(
+            "SELECT id FROM completed_tasks WHERE user_id=? AND task_id=?", (user_id, task_id)).fetchone()
+        if row:
+            return
+        connection.execute(
+            "INSERT INTO completed_tasks(user_id, task_id, claimed, created_at) VALUES(?,?,0,?)",
+            (user_id, task_id, int(time.time())))
+        connection.commit()
+        notify(user_id, f"✅ Görev tamamlandı: {TASKS[task_id]['icon']} {TASKS[task_id]['name']} — ödülünü almak için Görevler sayfasına git!")
+
+
+def register_task(user_id: int, task_id: str) -> None:
+    check_task(user_id, task_id)
 
 
 
@@ -1945,8 +2121,20 @@ def page(title: str, body: str, user: str | None = None, message: str = "", mess
             pass
             
     balance_pill = f'<span class="balance-pill">Bakiye: {balance_val:.2f} TL</span>' if user else ""
+    bell = ""
+    if user:
+        try:
+            with db() as connection:
+                uid = connection.execute("SELECT id FROM users WHERE username=?", (user,)).fetchone()["id"]
+                unread = connection.execute(
+                    "SELECT COUNT(*) AS n FROM notifications WHERE user_id=? AND read=0",
+                    (uid,)).fetchone()["n"]
+        except Exception:
+            unread = 0
+        badge = f'<span class="bell-badge">{unread}</span>' if unread else ""
+        bell = f'<a class="ghost button" href="/notifications" style="color: #ffd700; border-color: #ffd7003d;">🔔 Bildirimler{badge}</a>'
     account = (
-        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/friends" style="color: #b78bff; border-color: #b78bff3d;">👥 Arkadaşlar</a><a class="ghost button" href="/inventory" style="color: #65d9ff; border-color: #65d9ff3d;">🎒 Envanter</a><a class="ghost button" href="/market" style="color: #4ade80; border-color: #4ade803d;">🛒 Pazar</a><a class="ghost button" href="/trade" style="color: #ffd700; border-color: #ffd7003d;">🔁 Takas</a><a class="ghost button" href="/cases" style="color: #ffd700; border-color: #ffd7003d;">🎁 Kasalar</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<a class="user-pill" href="/profile/{quote(user)}" title="Profili görüntüle">{esc(user)}{premium_badge}</a><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
+        f'<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/friends" style="color: #b78bff; border-color: #b78bff3d;">👥 Arkadaşlar</a>{bell}<a class="ghost button" href="/inventory" style="color: #65d9ff; border-color: #65d9ff3d;">🎒 Envanter</a><a class="ghost button" href="/market" style="color: #4ade80; border-color: #4ade803d;">🛒 Pazar</a><a class="ghost button" href="/trade" style="color: #ffd700; border-color: #ffd7003d;">🔁 Takas</a><a class="ghost button" href="/cases" style="color: #ffd700; border-color: #ffd7003d;">🎁 Kasalar</a><a class="ghost button" href="/wheel" style="color: #ff6b6b; border-color: #ff6b6b3d;">🎡 Çark</a><a class="ghost button" href="/coinflip" style="color: #4ade80; border-color: #4ade803d;">🪙 Coinflip</a><a class="ghost button" href="/daily" style="color: #ffd700; border-color: #ffd7003d;">Günlük Ödül</a><a class="ghost button" href="/tasks" style="color: #65d9ff; border-color: #65d9ff3d;">🎯 Görevler</a><a class="ghost button" href="/leaderboard" style="color: #ffd700; border-color: #ffd7003d;">🏆 Liderlik</a><a class="ghost button" href="/referral" style="color: #ff6b6b; border-color: #ff6b6b3d;">📣 Davet</a><a class="ghost button" href="/payment" style="color: #65d9ff; border-color: #65d9ff3d;">Bakiye Yükle</a><a class="ghost button" href="/admin">Yönetim</a>{balance_pill}<a class="user-pill" href="/profile/{quote(user)}" title="Profili görüntüle">{esc(user)}{premium_badge}</a><form method="post" action="/logout" class="inline">{csrf_input}<button class="ghost" type="submit">Çıkış</button></form>'
         if user
         else '<a class="ghost button" href="/updates">Güncellemeler</a><a class="ghost button" href="/paid-cheats" style="color: #ffd700; border-color: #ffd7003d;">💎 Ücretli Hileler</a><a class="ghost button" href="/projects">Projeler</a><a class="ghost button" href="/chat" style="color: #65d9ff; border-color: #65d9ff3d;">💬 Sohbet</a><a class="ghost button" href="/market" style="color: #4ade80; border-color: #4ade803d;">🛒 Pazar</a><a class="ghost button" href="/admin">Yönetim</a><a class="ghost button" href="/login">Giriş</a><a class="button primary" href="/register">Kayıt ol</a>'
     )
@@ -2569,10 +2757,15 @@ setInterval(poll, 1500);
                 self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
                 return
             with db() as connection:
-                target = connection.execute("SELECT id, username, avatar, bio, profile_link, status_text, created_at, premium_until, is_premium FROM users WHERE LOWER(username)=LOWER(?)", (target_name,)).fetchone()
+                target = connection.execute("SELECT id, username, avatar, bio, profile_link, status_text, created_at, premium_until, is_premium, cases_opened, total_won, daily_claims FROM users WHERE LOWER(username)=LOWER(?)", (target_name,)).fetchone()
             if not target:
                 self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1><p class="muted">Bu kullanıcı bulunamadı.</p></section>', username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), 404)
                 return
+            best_skin = None
+            with db() as connection:
+                best_skin = connection.execute(
+                    "SELECT item_name, item_tier, item_value FROM case_inventory WHERE user_id=? ORDER BY item_value DESC LIMIT 1",
+                    (target["id"],)).fetchone()
             t_avatar = target["avatar"]
             avatar_html = f'<img class="profile-avatar" src="{esc(t_avatar)}" alt="profil fotoğrafı">' if t_avatar else '<div class="profile-avatar profile-avatar-empty">👤</div>'
             t_name = target["username"]
@@ -2599,12 +2792,20 @@ setInterval(poll, 1500);
                     action_area = '<a class="button" href="/login">Giriş yap</a>'
             link_html = f'<a class="profile-link" href="{esc(t_link)}" target="_blank" rel="noopener">🔗 {esc(t_link)}</a>' if t_link else ""
             status_html = f'<span class="profile-status">{esc(t_status)}</span>' if t_status else ""
+            best_skin_html = f'<div class="inv-item" style="--tier:{TIER_INFO[best_skin["item_tier"]]["color"]}"><span class="inv-name">{esc(best_skin["item_name"])}</span><span class="inv-meta">{TIER_INFO[best_skin["item_tier"]]["name"]} · {best_skin["item_value"]:.0f} TL</span></div>' if best_skin else '<div class="inv-item" style="--tier:#666"><span class="inv-name">—</span><span class="inv-meta">Henüz skin yok</span></div>'
+            stats_html = f"""<div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:14px;">
+    <span class="status-tag" style="background:#0e3a5c;color:#7fd8ff;">🎁 {target['cases_opened'] or 0} kasa açtı</span>
+    <span class="status-tag" style="background:#3a2f0e;color:#ffd700;">💰 Kazanç: {float(target['total_won'] or 0):.0f} TL</span>
+    <span class="status-tag" style="background:#0e3a2f;color:#4ade80;">📅 {target['daily_claims'] or 0} günlük ödül</span>
+  </div>
+  <div class="inv-item" style="--tier:{TIER_INFO[best_skin['item_tier']]['color'] if best_skin else '#666'}"><span class="inv-name">🏆 En iyi skin</span><span class="inv-meta">{esc(best_skin['item_name']) if best_skin else '—'}</span></div>"""
             body = f"""<section class="profile-wrap" style="max-width: 720px; margin: 0 auto;">
   <div class="profile-card">
     {avatar_html}
     <h2>{esc(t_name)}{' <span class="premium-badge">PREMIUM</span>' if t_prem else ''}</h2>
     {status_html}
     <p class="muted">Topluluk üyesi · Katılım: {member_since}</p>
+    {stats_html}
     <p class="profile-bio">{esc(t_bio)}</p>
     {link_html}
     <div style="margin-top: 20px;">{action_area}</div>
@@ -3203,7 +3404,9 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
             self.send_html(form_page("Giriş yap", "/login", "Giriş yap", fields, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), cookies=[("captcha", c_val)])
         elif path == "/register":
             q_text, c_val = generate_captcha()
-            fields = f'<label>Kullanıcı adı<input name="username" autocomplete="username" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_]+"></label><label>Şifre<input name="password" type="password" autocomplete="new-password" required minlength="8"></label><label>Şifre tekrar<input name="password2" type="password" autocomplete="new-password" required minlength="8"></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
+            ref_code = query.get("ref", [""])[0][:16] if "ref" in query else ""
+            ref_hint = f'<label>Davet kodu (isteğe bağlı)<input name="ref_code" value="{esc(ref_code)}" maxlength="16" placeholder="Arkadaşının davet kodu"></label>' if ref_code else ""
+            fields = f'<label>Kullanıcı adı<input name="username" autocomplete="username" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_]+"></label><label>Şifre<input name="password" type="password" autocomplete="new-password" required minlength="8"></label><label>Şifre tekrar<input name="password2" type="password" autocomplete="new-password" required minlength="8"></label>{ref_hint}<label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
             self.send_html(form_page("Kayıt ol", "/register", "Hesap oluştur", fields, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok), cookies=[("captcha", c_val)])
         elif path == "/paid-cheats":
             if not user:
@@ -3583,6 +3786,156 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
             </section>
             """
             self.send_html(page("Günlük Ödül", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/tasks":
+            if not user:
+                self.redirect("/login")
+                return
+            statuses = task_status(user[1])
+            total_reward = sum(t["reward"] for t in statuses.values() if not t["claimed"])
+            cards = []
+            for tid, t in statuses.items():
+                target = int(tid.rsplit("_", 1)[1]) if tid.rsplit("_", 1)[1].isdigit() else 1
+                if t["claimed"]:
+                    state = '<span class="status-tag onaylandi">✔ Tamamlandı</span>'
+                elif t["ready"]:
+                    state = '<form method="post" action="/tasks/claim" class="inline"><input type="hidden" name="csrf_token" value="' + esc(csrf_tok) + '"><input type="hidden" name="task_id" value="' + esc(tid) + '"><button class="button primary small" type="submit">🎁 Ödülü Al (+' + str(t["reward"]) + ' TL)</button></form>'
+                else:
+                    state = f'<span class="status-tag beklemede">İlerleme: {t["progress"]}/{target}</span>'
+                cards.append(
+                    f'<div class="panel" style="padding:16px;display:flex;align-items:center;gap:14px;justify-content:space-between;flex-wrap:wrap;">'
+                    f'<div><div style="font-size:20px;">{t["icon"]} <strong>{esc(t["name"])}</strong> <span class="status-tag" style="color:#ffd700;">+{t["reward"]} TL</span></div>'
+                    f'<div style="font-size:13px;color:var(--muted);margin-top:4px;">{esc(t["desc"])}</div></div>{state}</div>'
+                )
+            body = (
+                '<section class="panel" style="padding:20px;">'
+                '<h2 style="margin:0 0 6px;">🎯 Görevler</h2>'
+                f'<p style="margin:0 0 16px;color:var(--muted);">Görevleri tamamla, ödüllerini al! Toplam bekleyen ödül: <strong style="color:#00ff88;">{total_reward} TL</strong></p>'
+                + "".join(cards)
+                + "</section>"
+            )
+            self.send_html(page("Görevler", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/notifications":
+            if not user:
+                self.redirect("/login")
+                return
+            with db() as connection:
+                rows = connection.execute(
+                    "SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC LIMIT 50", (user[1],)).fetchall()
+            items = []
+            for r in rows:
+                cls = "" if r["read"] else ' style="border-color:#ffd70055;"'
+                items.append(
+                    f'<div class="panel" {cls} style="padding:14px;margin-bottom:8px;">'
+                    f'<div style="font-size:14px;">{esc(r["body"])}</div>'
+                    f'<div style="font-size:12px;color:var(--muted);margin-top:4px;">{format_date(r["created_at"])} · {time.strftime("%H:%M", time.localtime(r["created_at"]))}</div></div>'
+                )
+            if not items:
+                items.append('<div class="empty-state">📭 Bildirimin yok. Takas istekleri, arkadaşlık ve ödüller burada görünür.</div>')
+            body = (
+                '<section class="panel" style="padding:20px;">'
+                '<h2 style="margin:0 0 4px;">🔔 Bildirimler</h2>'
+                '<form method="post" action="/notifications/read" style="margin:10px 0 16px;">'
+                + f'<input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">'
+                + '<button class="ghost button small" type="submit">Tümünü okundu işaretle</button></form>'
+                + "".join(items) + "</section>"
+            )
+            self.send_html(page("Bildirimler", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/leaderboard":
+            with db() as connection:
+                week = int(time.time()) - 7 * 86400
+                lb_cases = connection.execute(
+                    "SELECT username, cases_opened FROM users WHERE cases_opened>0 ORDER BY cases_opened DESC, balance DESC LIMIT 10").fetchall()
+                lb_won = connection.execute(
+                    "SELECT username, total_won FROM users WHERE total_won>0 ORDER BY total_won DESC LIMIT 10").fetchall()
+                lb_rich = connection.execute(
+                    "SELECT username, balance FROM users ORDER BY balance DESC LIMIT 10").fetchall()
+            medals = ["🥇", "🥈", "🥉"]
+            def lb_table(rows, col_name, col_fmt):
+                trs = []
+                for i, r in enumerate(rows):
+                    medal = medals[i] if i < 3 else f'{i+1}.'
+                    trs.append(
+                        f'<tr><td>{medal}</td><td><a href="/profile/{quote(r["username"])}" style="color:inherit;">{esc(r["username"])}</a></td>'
+                        f'<td>{col_fmt(r)}</td></tr>'
+                    )
+                return f'<table class="table"><thead><tr><th></th><th>Kullanıcı</th><th>{col_name}</th></tr></thead><tbody>{"".join(trs)}</tbody></table>'
+            body = (
+                '<section class="panel" style="padding:20px;">'
+                '<h2 style="margin:0 0 16px;">🏆 Liderlik Tablosu</h2>'
+                '<h3 style="color:#ffd700;margin:16px 0 8px;">🎁 En Çok Kasa Açan</h3>'
+                + lb_table(lb_cases, "Kasa", lambda r: f'{r["cases_opened"]} kasa')
+                + '<h3 style="color:#00ff88;margin:16px 0 8px;">💰 En Çok Kazanan</h3>'
+                + lb_table(lb_won, "Kazanç", lambda r: f'{r["total_won"]:.0f} TL')
+                + '<h3 style="color:#65d9ff;margin:16px 0 8px;">💵 En Zengin</h3>'
+                + lb_table(lb_rich, "Bakiye", lambda r: f'{r["balance"]:.2f} TL')
+                + "</section>"
+            )
+            self.send_html(page("Liderlik", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/referral":
+            if not user:
+                self.redirect("/login")
+                return
+            with db() as connection:
+                row = connection.execute("SELECT referral_code, referred_by FROM users WHERE id=?", (user[1],)).fetchone()
+                refs = connection.execute(
+                    "SELECT username, created_at FROM users WHERE referred_by=? ORDER BY created_at DESC LIMIT 20",
+                    (user[1],)).fetchall()
+            code = row["referral_code"]
+            if not code:
+                code = "".join(random.choices("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", k=8))
+                with db() as connection:
+                    connection.execute("UPDATE users SET referral_code=? WHERE id=?", (code, user[1]))
+            link = f"https://biga-cheat-site.onrender.com/register?ref={code}"
+            ref_rows = ""
+            if refs:
+                for r in refs:
+                    ref_rows += f'<tr><td>{esc(r["username"])}</td><td>{format_date(r["created_at"])}</td><td>+10 TL</td></tr>'
+            else:
+                ref_rows = '<tr><td colspan="3" style="color:var(--muted);">Henüz davet ettiğin yok.</td></tr>'
+            body = (
+                '<section class="panel" style="padding:20px;">'
+                '<h2 style="margin:0 0 6px;">📣 Davet Sistemi</h2>'
+                f'<p style="margin:0 0 16px;color:var(--muted);">Linkini paylaş, arkadaşın kayıt olsun — sen <strong style="color:#00ff88;">+10 TL</strong>, o <strong style="color:#00ff88;">+5 TL</strong> bonus alsın!</p>'
+                f'<div class="panel" style="padding:14px;background:var(--card);"><code style="font-size:14px;word-break:break-all;">{esc(link)}</code>'
+                f'<button class="ghost button small" onclick="navigator.clipboard.writeText(\'{esc(link)}\');this.textContent=\'Kopyalandı ✔\'">Kopyala</button></div>'
+                '<h3 style="margin:18px 0 8px;">👥 Davet Ettiklerin</h3>'
+                f'<table class="table"><thead><tr><th>Kullanıcı</th><th>Tarih</th><th>Bonus</th></tr></thead><tbody>{ref_rows}</tbody></table>'
+                "</section>"
+            )
+            self.send_html(page("Davet", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
+        elif path == "/coinflip":
+            if not user:
+                self.redirect("/login")
+                return
+            with db() as connection:
+                active = connection.execute(
+                    "SELECT * FROM coinflip_games WHERE status='waiting' ORDER BY id DESC LIMIT 20").fetchall()
+                balance = connection.execute("SELECT balance FROM users WHERE id=?", (user[1],)).fetchone()["balance"]
+                creators = {u["id"]: u["username"] for u in connection.execute("SELECT id, username FROM users").fetchall()}
+            game_rows = ""
+            for g in active:
+                creator = creators.get(g["creator_id"], "?")
+                game_rows += (
+                    f'<tr><td>{esc(creator)}</td><td>{g["amount"]:.0f} TL</td>'
+                    f'<td><form method="post" action="/coinflip/join" class="inline">'
+                    f'<input type="hidden" name="csrf_token" value="{esc(csrf_tok)}"><input type="hidden" name="game_id" value="{g["id"]}">'
+                    f'<button class="button primary small" type="submit">Katıl</button></form></td></tr>'
+                )
+            if not game_rows:
+                game_rows = '<tr><td colspan="3" style="color:var(--muted);">Aktif oyun yok — ilk oyunu sen aç!</td></tr>'
+            body = (
+                '<section class="panel" style="padding:20px;">'
+                '<h2 style="margin:0 0 6px;">🪙 Coinflip</h2>'
+                f'<p style="margin:0 0 16px;color:var(--muted);">İki kişi aynı miktarı yatırır, kazanan <strong style="color:#00ff88;">%95</strong> oranla tüm havuzu alır (komisyon %5). Bakiyen: <strong>{balance:.2f} TL</strong></p>'
+                '<form method="post" action="/coinflip/create" class="form" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+                + f'<input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">'
+                + '<input type="number" name="amount" min="5" max="5000" step="1" value="25" required style="width:140px;" placeholder="Miktar (TL)">'
+                + '<button class="button primary" type="submit">🎲 Oyun Oluştur</button></form>'
+                + '<h3 style="margin:18px 0 8px;">🎮 Aktif Oyunlar</h3>'
+                + f'<table class="table"><thead><tr><th>Oluşturan</th><th>Miktar</th><th></th></tr></thead><tbody>{game_rows}</tbody></table>'
+                + "</section>"
+            )
+            self.send_html(page("Coinflip", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
         elif path == "/wheel":
             if not user:
                 self.redirect("/login")
@@ -3702,12 +4055,15 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                 self.redirect("/admin/login")
                 return
             with db() as connection:
-                users = connection.execute("SELECT id, username, created_at, is_premium, premium_until, balance FROM users ORDER BY created_at DESC").fetchall()
+                users = connection.execute("SELECT id, username, created_at, is_premium, premium_until, balance, cases_opened, total_won, market_sells, market_buys FROM users ORDER BY created_at DESC").fetchall()
                 updates = connection.execute("SELECT id, title, body, tag, created_at FROM updates ORDER BY created_at DESC").fetchall()
                 payments = connection.execute("SELECT payments.id, users.username, payments.platform, payments.code, payments.amount, payments.status, payments.created_at FROM payments JOIN users ON users.id=payments.user_id ORDER BY payments.created_at DESC").fetchall()
                 dl_logs = connection.execute("SELECT downloads.id, users.username, downloads.filename, downloads.serial, downloads.ip, downloads.created_at FROM downloads JOIN users ON users.id=downloads.user_id ORDER BY downloads.created_at DESC LIMIT 30").fetchall()
                 logs = connection.execute("SELECT event, created_at FROM logs ORDER BY created_at DESC LIMIT 25").fetchall()
                 logs_count = connection.execute("SELECT COUNT(*) FROM logs").fetchone()[0]
+                coinflip_count = connection.execute("SELECT COUNT(*) FROM coinflip_games").fetchone()[0]
+                tasks_count = connection.execute("SELECT COUNT(*) FROM completed_tasks WHERE claimed=1").fetchone()[0]
+                notif_count = connection.execute("SELECT COUNT(*) FROM notifications WHERE read=0").fetchone()[0]
 
             premium_count = sum(1 for u in users if u["is_premium"] or u["premium_until"] > int(time.time()))
             pending_count = sum(1 for p in payments if p["status"] == "BEKLEMEDE")
@@ -3746,7 +4102,7 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                     <button class="button small primary" type="submit">Premium Yap</button>
                 </form>
                 """
-                user_rows += f"<tr><td>{esc(row['username'])}</td><td>{p_badge} {exp_info}</td><td>{balance_val:.2f} TL</td><td>{time.strftime('%Y-%m-%d %H:%M', time.localtime(row['created_at']))}</td><td style='display: flex; gap: 10px; align-items: center;'>{toggle_btn} {balance_actions}</td></tr>"
+                user_rows += f"<tr><td>{esc(row['username'])}</td><td>{p_badge} {exp_info}</td><td>{balance_val:.2f} TL</td><td>{row['cases_opened'] or 0} 🎁 / {float(row['total_won'] or 0):.0f} TL</td><td>{row['market_sells'] or 0} satış / {row['market_buys'] or 0} alım</td><td>{time.strftime('%Y-%m-%d %H:%M', time.localtime(row['created_at']))}</td><td style='display: flex; gap: 10px; align-items: center;'>{toggle_btn} {balance_actions}</td></tr>"
 
             update_rows = "".join(f"<tr><td><span class=\"update-tag\">{esc(row['tag'])}</span></td><td>{esc(row['title'])}</td><td>{format_date(row['created_at'])}</td></tr>" for row in updates)
 
@@ -3795,6 +4151,9 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
     <div class="stat"><span>Kayıtlı Kullanıcı</span><strong>{len(users)}</strong></div>
     <div class="stat"><span>Premium Üye</span><strong>{premium_count}</strong></div>
     <div class="stat"><span>Bekleyen Ödeme</span><strong>{pending_count}</strong></div>
+    <div class="stat"><span>Coinflip Oyunu</span><strong>{coinflip_count}</strong></div>
+    <div class="stat"><span>Tamamlanan Görev</span><strong>{tasks_count}</strong></div>
+    <div class="stat"><span>Okunmamış Bildirim</span><strong>{notif_count}</strong></div>
     <div class="stat"><span>Sistem Olay Kaydı</span><strong>{logs_count}</strong></div>
 </section>
 
@@ -3807,12 +4166,14 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                     <th>Kullanıcı Adı</th>
                     <th>Üyelik Tipi</th>
                     <th>Bakiye</th>
+                    <th>Kasa / Kazanç</th>
+                    <th>Pazar</th>
                     <th>Kayıt Tarihi</th>
                     <th>İşlem</th>
                 </tr>
             </thead>
             <tbody>
-                {user_rows or '<tr><td colspan="5" class="muted">Kayıtlı kullanıcı yok.</td></tr>'}
+                {user_rows or '<tr><td colspan="7" class="muted">Kayıtlı kullanıcı yok.</td></tr>'}
             </tbody>
         </table>
     </section>
@@ -3999,14 +4360,117 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
         if path in ("/register", "/login", "/admin/login", "/payment/submit", "/wheel/spin") and not rate_allowed(ip, path.strip("/")):
             self.rate_limit_response()
             return
-        if path == "/api/bot":
+        if path == "/tasks/claim":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.redirect("/tasks?msg=CSRF+hatasi&msg_type=error")
+                return
+            task_id = fields.get("task_id", "").strip()
+            if task_id not in TASKS:
+                self.redirect("/tasks?msg=Gecersiz+gorev&msg_type=error")
+                return
+            with db() as connection:
+                progress = task_progress(current[1])
+                if progress[task_id] < 1:
+                    self.redirect("/tasks?msg=Gorev+henuz+tamamlanmadi&msg_type=error")
+                    return
+                row = connection.execute(
+                    "SELECT id, claimed FROM completed_tasks WHERE user_id=? AND task_id=?", (current[1], task_id)).fetchone()
+                if not row:
+                    connection.execute(
+                        "INSERT INTO completed_tasks(user_id, task_id, claimed, created_at) VALUES(?,?,1,?)",
+                        (current[1], task_id, int(time.time())))
+                    connection.execute("UPDATE users SET balance=balance+? WHERE id=?", (TASKS[task_id]["reward"], current[1]))
+                elif not row["claimed"]:
+                    connection.execute("UPDATE completed_tasks SET claimed=1 WHERE id=?", (row["id"],))
+                    connection.execute("UPDATE users SET balance=balance+? WHERE id=?", (TASKS[task_id]["reward"], current[1]))
+            log_event(f"[GÖREV] '{username}' {TASKS[task_id]['name']} görevini tamamlayıp +{TASKS[task_id]['reward']} TL aldı.")
+            self.redirect(f"/tasks?msg={quote(TASKS[task_id]['name'] + ' odulu alindi: +' + str(TASKS[task_id]['reward']) + ' TL')}&msg_type=success")
+        elif path == "/notifications/read":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.redirect("/notifications?msg=CSRF+hatasi&msg_type=error")
+                return
+            with db() as connection:
+                connection.execute("UPDATE notifications SET read=1 WHERE user_id=?", (current[1],))
+            self.redirect("/notifications")
+        elif path == "/coinflip/create":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.redirect("/coinflip?msg=CSRF+hatasi&msg_type=error")
+                return
+            try:
+                amount = float(fields.get("amount", "0"))
+            except (ValueError, TypeError):
+                amount = 0
+            if amount < 5 or amount > 5000:
+                self.redirect("/coinflip?msg=Miktar+5-5000+TL+arasi+olabilir&msg_type=error")
+                return
+            with db() as connection:
+                row = connection.execute("SELECT balance FROM users WHERE id=?", (current[1],)).fetchone()
+                if float(row["balance"]) < amount:
+                    self.redirect("/coinflip?msg=Bakiyeniz+yetersiz&msg_type=error")
+                    return
+                connection.execute("UPDATE users SET balance=balance-? WHERE id=?", (amount, current[1]))
+                gid = connection.insert_id(
+                    "INSERT INTO coinflip_games(creator_id, joiner_id, amount, status, winner_id, created_at) VALUES(?,0,?,?,0,?)",
+                    (current[1], amount, "waiting", int(time.time())))
+            log_event(f"[COINFLIP] '{username}' {amount:.0f} TL'lik oyun oluşturdu.")
+            self.redirect("/coinflip?msg=Oyun+olusturuldu.+Rakip+bekleniyor.&msg_type=success")
+        elif path == "/coinflip/join":
+            if not current:
+                self.redirect("/login")
+                return
+            if not self.verify_csrf(fields):
+                self.redirect("/coinflip?msg=CSRF+hatasi&msg_type=error")
+                return
+            try:
+                game_id = int(fields.get("game_id", "0"))
+            except (ValueError, TypeError):
+                game_id = 0
+            with db() as connection:
+                game = connection.execute(
+                    "SELECT * FROM coinflip_games WHERE id=? AND status='waiting'", (game_id,)).fetchone()
+                if not game:
+                    self.redirect("/coinflip?msg=Oyun+bulunamadi+veya+doldu&msg_type=error")
+                    return
+                if game["creator_id"] == current[1]:
+                    self.redirect("/coinflip?msg=Kendi+oyununa+katilamazsin&msg_type=error")
+                    return
+                row = connection.execute("SELECT balance FROM users WHERE id=?", (current[1],)).fetchone()
+                if float(row["balance"]) < game["amount"]:
+                    self.redirect("/coinflip?msg=Bakiyeniz+yetersiz&msg_type=error")
+                    return
+                connection.execute("UPDATE users SET balance=balance-? WHERE id=?", (game["amount"], current[1]))
+                winner_id = random.choice([game["creator_id"], current[1]])
+                pot = game["amount"] * 2 * 0.95
+                winner_row = connection.execute("SELECT username FROM users WHERE id=?", (winner_id,)).fetchone()
+                winner_name = winner_row["username"] if winner_row else "?"
+                connection.execute("UPDATE users SET balance=balance+? WHERE id=?", (pot, winner_id))
+                connection.execute(
+                    "UPDATE coinflip_games SET joiner_id=?, status='completed', winner_id=? WHERE id=?",
+                    (current[1], winner_id, game_id))
+                loser_id = current[1] if winner_id == game["creator_id"] else game["creator_id"]
+                winner_name_short = winner_name
+            register_task(current[1], "coinflip_1")
+            notify(winner_id, f"🪙 Coinflip kazandın! +{pot:.0f} TL bakiyene eklendi.")
+            notify(loser_id, f"😔 Coinflip'i kaybettin — {game['amount']:.0f} TL. Bir dahaki sefere şans! 🍀")
+            log_event(f"[COINFLIP] '{username}' {game['amount']:.0f} TL'lik oyuna katıldı. Kazanan: {winner_name_short} (+{pot:.0f} TL).")
+            self.redirect(f"/coinflip?msg=Kazanan:+{quote(winner_name_short)}+({pot:.0f}+TL)&msg_type=success")
+        elif path == "/api/bot":
             flat = {k: v[0] if isinstance(v, list) else v for k, v in fields.items()}
             msg = (flat.get("msg") or "").strip()[:300]
             if not msg:
                 self.send_json({"reply": "Ne yazmak istersin? Kasa, bakiye, premium, Pazar, takas gibi konularda soru sorabilirsin."})
                 return
             if not rate_allowed(f"{ip}:bot:{current[1] if current else ip}", "chat/support"):
-                self.send_json({"reply": "Çok hızlı yazıyorsun. Biraz bekleyip tekrar dene (dakikada 10 mesaj)."})
+                self.send_json({"reply": "Çok hızlı yazıyorsun. Biraz bekleyip tekrar dene (dakikada 60 mesaj)."})
                 return
             self.send_json({"reply": bot_reply(msg)})
             return
@@ -4032,6 +4496,7 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                 base = max(int(time.time()), int(row["premium_until"]) if row else 0)
                 new_until = base + plan["days"] * 86400
                 connection.execute("UPDATE users SET balance=balance-?, premium_until=? WHERE id=?", (price, new_until, current[1]))
+            register_task(current[1], "premium_1")
             log_event(f"[PREMIUM] '{username}' kullanıcısı bakiyesiyle {plan['days']} gün premium erişim satın aldı ({price:.0f} TL).")
             self.redirect("/paid-cheats?msg=Erisim+aktif.+Suresi:+{days}gn.&msg_type=success".replace("{days}", str(plan["days"])))
         elif path == "/chat/send":
@@ -4180,7 +4645,10 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                 connection.execute("UPDATE users SET balance=balance+? WHERE id=?", (listing["price"], listing["seller_id"]))
                 connection.execute("UPDATE case_inventory SET user_id=? WHERE id=?", (current[1], listing["inv_id"]))
                 connection.execute("UPDATE market_listings SET status='sold' WHERE id=?", (listing["lid"],))
+                connection.execute("UPDATE users SET market_buys=market_buys+1 WHERE id=?", (current[1],))
+            register_task(current[1], "market_buy")
             log_event(f"[PAZAR] '{username}' {listing['seller_name']}'nun ilanını {listing['price']:.2f} TL'ye satın aldı.")
+            notify(listing["seller_id"], f"🛒 '{username}' ilanını {listing['price']:.2f} TL'ye satın aldı!")
             self.redirect("/market?msg=Skin+satin+alindi&msg_type=success")
             return
         elif path == "/inventory/sell":
@@ -4213,6 +4681,9 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                     return
                 connection.execute("UPDATE users SET balance=balance+? WHERE id=?", (price, current[1]))
                 connection.execute("DELETE FROM case_inventory WHERE id=?", (inv_id,))
+                connection.execute("UPDATE users SET market_sells=market_sells+1 WHERE id=?", (current[1],))
+            register_task(current[1], "sell_1")
+            register_task(current[1], "sell_5")
             log_event(f"[PAZAR] '{username}' envanterden {inv['item_name']}'i canlı fiyata sattı ({price:.2f} TL).")
             self.redirect(f"/inventory?msg=Satildi:+{quote(inv['item_name'])}+({price:.2f}+TL)&msg_type=success")
             return
@@ -4300,6 +4771,8 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                     connection.execute("UPDATE trade_requests SET status='declined' WHERE id=?", (req["id"],))
             if accepted:
                 log_event(f"[TAKAS] '{username}' takası onayladı → skinler değişti.")
+                register_task(current[1], "trade_1")
+                notify(req["sender_id"], f"🔁 '{username}' takas isteğini kabul etti! Skinler takas edildi.")
                 self.redirect("/trade?msg=Takas+gerceklesti&msg_type=success")
             else:
                 self.redirect("/trade?msg=Takas+reddedildi&msg_type=success")
@@ -4354,7 +4827,27 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                         "INSERT INTO case_inventory(user_id, case_key, item_name, item_tier, item_value, skin_key, created_at) VALUES(?,?,?,?,?,?,?)",
                         (current[1], case_key, chosen["name"], chosen["tier"], chosen["value"], chosen.get("skin", ""), int(time.time())),
                     )
+            # İstatistikler: açılan kasa + kazanılan değer
+            won_value = chosen["value"] if reward_type != "premium" else 0
+            with db() as connection:
+                connection.execute(
+                    "UPDATE users SET cases_opened=cases_opened+1, total_won=total_won+? WHERE id=?",
+                    (won_value, current[1]))
             tier = TIER_INFO[chosen["tier"]]
+            register_task(current[1], "case_1")
+            register_task(current[1], "case_5")
+            register_task(current[1], "case_20")
+            # Nadir ödüllerde sohbete bot duyurusu
+            if reward_type == "skin" and chosen["tier"] in ("covert", "extraordinary"):
+                try:
+                    with db() as connection:
+                        connection.execute(
+                            "INSERT INTO chat_messages(user_id, username, body, image, created_at) VALUES(?,?,?,?,?)",
+                            (current[1], "🤖 BigaBot",
+                             f"🎉 {username} kasasından {tier['name']} skin çıkardı: {chosen['name']}!", "",
+                             int(time.time())))
+                except Exception:
+                    pass
             log_event(f"[KASA] '{username}' {case['name']} açtı → {chosen['name']} ({tier['name']}).")
             self.send_json({
                 "ok": True,
@@ -4415,6 +4908,7 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                         connection.execute("UPDATE friend_requests SET status='pending', sender_id=?, receiver_id=?, created_at=? WHERE id=?", (current[1], trow["id"], int(time.time()), existing["id"]))
                 else:
                     connection.execute("INSERT INTO friend_requests(sender_id, receiver_id, status, created_at) VALUES(?,?,'pending',?)", (current[1], trow["id"], int(time.time())))
+            notify(trow["id"], f"👥 '{username}' sana arkadaşlık isteği gönderdi!")
             self.redirect(f"/profile/{quote(target)}?msg=Arkadaslik+istegi+gonderildi&msg_type=success")
             return
         elif path == "/friends/accept":
@@ -4437,6 +4931,8 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                 now = int(time.time())
                 connection.execute("INSERT INTO friends(user_id, friend_id, created_at) VALUES(?,?,?)", (current[1], req["sender_id"], now))
                 connection.execute("INSERT INTO friends(user_id, friend_id, created_at) VALUES(?,?,?)", (req["sender_id"], current[1], now))
+            register_task(current[1], "friend_1")
+            notify(req["sender_id"], f"🤝 '{username}' arkadaşlık isteğini kabul etti! Artık arkadaşsınız.")
             self.redirect("/friends?msg=Arkadaslik+kuruldu!&msg_type=success")
             return
         elif path == "/friends/decline":
@@ -4485,6 +4981,27 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                 fields_html = f'<label>Kullanıcı adı<input name="username" required maxlength="24"></label><label>Şifre<input name="password" type="password" required minlength="8"></label><label>Şifre tekrar<input name="password2" type="password" required minlength="8"></label><label>Robot doğrulaması: <strong>{q_text} = ?</strong><input name="captcha_answer" required type="number" placeholder="Cevabı girin" autocomplete="off"></label>'
                 self.send_html(form_page("Kayıt ol", "/register", "Hesap oluştur", fields_html, username, "Bu kullanıcı adı zaten kayıtlı.", message_type="error", is_premium=is_premium, csrf_token=csrf_tok), 409, cookies=[("captcha", c_val)])
                 return
+            # Referans sistemi: davet kodu geçerliyse davet edene +10 TL, yeni üyeye +5 TL
+            ref_code = fields.get("ref_code", "").strip().upper()
+            referred_id = 0
+            if ref_code:
+                with db() as connection:
+                    referrer = connection.execute(
+                        "SELECT id FROM users WHERE referral_code=? AND id<>?", (ref_code, user_id)).fetchone()
+                    if referrer:
+                        referred_id = referrer["id"]
+                        connection.execute(
+                            "UPDATE users SET referred_by=? WHERE id=?", (referred_id, user_id))
+                        connection.execute("UPDATE users SET balance=balance+10 WHERE id=?", (referred_id,))
+                        connection.execute("UPDATE users SET balance=balance+5 WHERE id=?", (user_id,))
+                        connection.commit()
+                        notify(referred_id, f"🎉 '{name}' davet kodunla kayıt oldu! +10 TL bonus hesabına eklendi.")
+            # Davet kodu üret (zaten yoksa)
+            with db() as connection:
+                row = connection.execute("SELECT referral_code FROM users WHERE id=?", (user_id,)).fetchone()
+                if not row or not row["referral_code"]:
+                    code = "".join(random.choices("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", k=8))
+                    connection.execute("UPDATE users SET referral_code=? WHERE id=?", (code, user_id))
             token = secrets.token_urlsafe(32)
             with db() as connection:
                 connection.execute("INSERT INTO sessions(token_hash,user_id,expires_at) VALUES(?,?,?)", (token_digest(token), user_id, int(time.time()) + SESSION_TTL))
@@ -4840,6 +5357,10 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                     return
                 
                 log_msg = f"[GÜNLÜK] '{username}' kullanıcısı Gün {active_day} günlük ödülünü aldı: {reward_amt:.2f} TL. (Yeni Seri: {new_streak})"
+            with db() as connection:
+                connection.execute("UPDATE users SET daily_claims=daily_claims+1 WHERE id=?", (current[1],))
+            register_task(current[1], "daily_1")
+            register_task(current[1], "daily_3")
             log_event(log_msg)
             self.redirect(f"/daily?msg=Tebrikler!+{reward_amt:.0f}+TL+bakiye+hesabiniza+eklendi.&msg_type=success")
         elif path == "/wheel/spin":
@@ -4889,8 +5410,22 @@ setInterval(() => {{ fetch("/market/api/prices").then(r => r.json()).then(d => {
                 else:
                     net = reward - w["cost"]
                     connection.execute("UPDATE users SET balance=balance+? WHERE id=?", (net, current[1]))
+                connection.execute("UPDATE users SET wheel_spins=wheel_spins+1 WHERE id=?", (current[1],))
                 log_msg = f"[ÇARK] '{username}' {w['name']} çevirdi → {reward} TL kazandı (Segment {seg_idx+1})"
+            register_task(current[1], "wheel_1")
+            register_task(current[1], "wheel_5")
             log_event(log_msg)
+            # Büyük ödüllerde sohbete bot duyurusu
+            if reward >= 100:
+                try:
+                    with db() as connection:
+                        connection.execute(
+                            "INSERT INTO chat_messages(user_id, username, body, image, created_at) VALUES(?,?,?,?,?)",
+                            (current[1], "🤖 BigaBot",
+                             f"🎉 {username} çarktan {reward} TL kazandı!", "",
+                             int(time.time())))
+                except Exception:
+                    pass
             self.redirect(f"/wheel?won={reward}&wh={wheel_key}&seg={seg_idx}")
         else:
             self.send_html(page("Bulunamadı", '<section class="auth-card"><h1>404</h1></section>', username, is_premium=is_premium, csrf_token=csrf_tok), 404)
