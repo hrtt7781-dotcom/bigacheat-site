@@ -202,37 +202,40 @@ class LoaderApp:
         self.welcome = tk.Label(container, text="", fg=self.GOLD, bg=self.BG, font=("Segoe UI", 11, "bold"))
         self.welcome.pack_forget()
 
-        self.tab_frame = tk.Frame(container, bg=self.BG)
+        self.tab_frame_top = tk.Frame(container, bg=self.BG)
+        self.tab_frame_bottom = tk.Frame(container, bg=self.BG)
+
         self.tab_btn_free = tk.Button(
-            self.tab_frame,
+            self.tab_frame_top,
             text="🆓\nÜCRETSİZ HİLE\nBedava sürüm",
             command=lambda: self.select_tab("free"),
             bg=self.CARD, fg="white", activebackground="#1a3f63", activeforeground="white",
-            relief="flat", font=("Segoe UI", 11, "bold"), cursor="hand2",
+            relief="flat", font=("Segoe UI", 10, "bold"), cursor="hand2",
             disabledforeground="#5b7085", justify="center",
-            width=14, padx=10, pady=16,
+            padx=10, pady=12,
         )
         self.tab_btn_paid = tk.Button(
-            self.tab_frame,
+            self.tab_frame_top,
             text="👑\nÜCRETLİ HİLE\nPremium paket",
             command=lambda: self.select_tab("paid"),
             bg=self.CARD2, fg=self.GOLD, activebackground="#4a3a00", activeforeground=self.GOLD,
             relief="flat", font=("Segoe UI", 10, "bold"), cursor="hand2",
             disabledforeground="#5b7085", justify="center",
-            width=10, padx=5, pady=12,
+            padx=10, pady=12,
         )
         self.tab_btn_ultra = tk.Button(
-            self.tab_frame,
-            text="💎\nULTRA BIGA\nUltra Biga Cheat",
+            self.tab_frame_bottom,
+            text="💎  ULTRA HİLE (Velocity CS2 Edition)  ⚡",
             command=lambda: self.select_tab("ultra"),
             bg="#2a0f3d", fg="#d8b4fe", activebackground="#4c1d95", activeforeground="#d8b4fe",
-            relief="flat", font=("Segoe UI", 10, "bold"), cursor="hand2",
+            relief="flat", font=("Segoe UI", 11, "bold"), cursor="hand2",
             disabledforeground="#5b7085", justify="center",
-            width=10, padx=5, pady=12,
+            pady=14,
         )
-        self.tab_btn_free.pack(side="left", expand=True, fill="both", padx=(0, 3), ipady=8)
-        self.tab_btn_paid.pack(side="left", expand=True, fill="both", padx=(3, 3), ipady=8)
-        self.tab_btn_ultra.pack(side="left", expand=True, fill="both", padx=(3, 0), ipady=8)
+
+        self.tab_btn_free.pack(side="left", expand=True, fill="both", padx=(0, 4))
+        self.tab_btn_paid.pack(side="left", expand=True, fill="both", padx=(4, 0))
+        self.tab_btn_ultra.pack(fill="x", expand=True)
 
         self.start_btn = tk.Button(container, text="BAŞLAT", command=self.start_selected, bg=self.GOLD, fg="#0a0f16", activebackground="#ffe44d", activeforeground="#0a0f16", relief="flat", font=("Segoe UI", 13, "bold"), cursor="hand2")
         self.start_btn.pack_forget()
@@ -272,7 +275,8 @@ class LoaderApp:
         if not getattr(self, "logged_in", False):
             return
         self.welcome.pack(anchor="w", pady=(14, 0))
-        self.tab_frame.pack(fill="x", pady=(14, 0))
+        self.tab_frame_top.pack(fill="x", pady=(14, 0))
+        self.tab_frame_bottom.pack(fill="x", pady=(8, 0))
         if not getattr(self, "selected", None):
             self.selected = "paid" if getattr(self, "premium", False) else "free"
         self.refresh_tabs()
@@ -369,21 +373,26 @@ class LoaderApp:
                 self.set_loading(False)
 
     def start_download(self, dl_type):
-        if dl_type == "paid" and not getattr(self, "premium", False):
-            messagebox.showwarning(APP_NAME, "Ücretli Hile için premium üyelik gerekli. Bakiye yükleyip Ücretli Hileler sayfasından erişim satın al.")
+        if (dl_type == "paid" or dl_type == "ultra") and not getattr(self, "premium", False):
+            messagebox.showwarning(APP_NAME, "Premium / Ultra Hile için üyeliğin gerekli. Bakiye yükleyip siteden erişim satın al.")
             return
         if not getattr(self, "token", None):
             messagebox.showwarning(APP_NAME, "Önce giriş yap.")
             return
         self.set_loading(True)
-        self.set_status("Paket indiriliyor..." if dl_type == "paid" else "Ücretsiz sürüm indiriliyor...")
+        if dl_type == "ultra":
+            self.set_status("Ultra Hile (Velocity CS2) paketi indiriliyor...")
+        elif dl_type == "paid":
+            self.set_status("Paket indiriliyor...")
+        else:
+            self.set_status("Ücretsiz sürüm indiriliyor...")
         self.root.after(50, self.work_download, dl_type)
 
     def work_download(self, dl_type):
         temp_dir = None
         try:
             temp_dir = tempfile.mkdtemp(prefix="bigacheat_")
-            if dl_type == "paid":
+            if dl_type in ("paid", "ultra"):
                 zip_path = os.path.join(temp_dir, "premium.zip")
                 request_download(self.token, zip_path, "paid")
                 self.set_status("Paket açılıyor...")
@@ -394,7 +403,8 @@ class LoaderApp:
                 exe = os.path.join(extract_dir, EXE_NAME)
                 if not os.path.isfile(exe):
                     raise RuntimeError(f"{EXE_NAME} bulunamadı.")
-                self.set_status("CS2_Injector.exe başlatılıyor...")
+                cheat_title = "Ultra Hile (Velocity Edition)" if dl_type == "ultra" else "CS2_Injector.exe"
+                self.set_status(f"{cheat_title} başlatılıyor...")
                 if os.name == "nt":
                     try:
                         import ctypes
@@ -405,9 +415,9 @@ class LoaderApp:
                     subprocess.Popen([exe], cwd=extract_dir)
                 cleanup_after_exit(extract_dir, temp_dir)
                 temp_dir = None  # temizlik thread'e devredildi
-                msg = "Giriş başarılı.\nCS2_Injector.exe başlatıldı."
+                msg = f"Giriş başarılı.\n{cheat_title} başlatıldı."
                 if self.until:
-                    msg += f"\nKalan premium süren: {max(0, (self.until - int(time.time())) // 86400)} gün."
+                    msg += f"\nKalan premium/ultra süren: {max(0, (self.until - int(time.time())) // 86400)} gün."
                 msg += "\n\nDosya paylaşımı yasaktır — arşiv senin adına kayıtlı."
             else:
                 free_path = os.path.join(temp_dir, FREE_EXE_NAME)
