@@ -2606,9 +2606,39 @@ class Handler(BaseHTTPRequestHandler):
             body += f'<section class="update-strip"><div><div class="eyebrow">SON DUYURULAR</div><h2>Güncellemeler</h2></div><div class="update-mini-list">{update_cards}</div><a class="button ghost" href="/updates">Tümünü gör</a></section>'
             self.send_html(page("Ana sayfa", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
         elif path == "/ultra-biga":
-            download_btn = '<a class="button primary wide" href="/download" style="background: linear-gradient(135deg, #a855f7, #6366f1); border:none; padding:14px; font-size:16px; font-weight:bold;">⚡ Loader’ı İndir ve Ultra Biga’yı Başlat</a>' if user else '<a class="button primary wide" href="/register" style="background: linear-gradient(135deg, #a855f7, #6366f1); border:none; padding:14px; font-size:16px; font-weight:bold;">Ücretsiz Kayıt Ol & İndir</a>'
+            if not user:
+                download_btn = '<a class="button primary wide" href="/register" style="background: linear-gradient(135deg, #a855f7, #6366f1); border:none; padding:14px; font-size:16px; font-weight:bold;">Ücretsiz Kayıt Ol & Satın Al</a>'
+                purchase_sec = '<div class="notice" style="margin-top:20px;">Ultra Hile satın almak için önce hesabına giriş yapmalısın.</div>'
+            else:
+                download_btn = '<a class="button primary wide" href="/download" style="background: linear-gradient(135deg, #a855f7, #6366f1); border:none; padding:14px; font-size:16px; font-weight:bold;">⚡ Loader’ı İndir ve Ultra Biga’yı Başlat</a>'
+                with db() as connection:
+                    bal_row = connection.execute("SELECT balance FROM users WHERE id=?", (user[1],)).fetchone()
+                balance_val = float(bal_row["balance"]) if bal_row else 0.0
+                expiry = self.premium_expiry(user[1])
+                if expiry > int(time.time()):
+                    days_left = max(0, (expiry - int(time.time())) // 86400)
+                    purchase_sec = f'<div class="notice success" style="margin-top:20px;">✅ Ultra / Premium Üyeliğin Aktif — kalan süre: <strong>{days_left} gün</strong>. Loader üzerinden direkt başlatabilirsin!</div>'
+                else:
+                    ultra_options = ""
+                    for u_key, u_plan in [("ultra_30", PAID_CHEATS_PLANS["ultra_30"]), ("ultra_270", PAID_CHEATS_PLANS["ultra_270"])]:
+                        ultra_options += f'<label><input type="radio" name="plan" value="{u_key}" required> {u_plan["days"]} Gün Ultra Erişim — ₺{u_plan["price"]:.0f}</label><br>'
+                    purchase_sec = f"""<section class="auth-card upload-card" style="margin-top: 30px; width: min(600px, calc(100% - 40px)); border-color: rgba(168, 85, 247, 0.4); background: linear-gradient(180deg, rgba(168, 85, 247, 0.08) 0%, rgba(15, 23, 40, 0.95) 100%);">
+    <div class="eyebrow" style="color: #a855f7;">ULTRA HİLE SATIN AL</div>
+    <h1>Mevcut Bakiyen: ₺{balance_val:.2f}</h1>
+    <p class="muted" style="margin-bottom: 15px;">Bakiyeni kullanarak anında Ultra Hile erişimi aktif edebilirsin.</p>
+    <form method="post" action="/paid-cheats/purchase" class="form">
+        <input type="hidden" name="csrf_token" value="{esc(csrf_tok)}">
+        <label>Plan Seç
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">{ultra_options}</div>
+        </label>
+        <button class="button primary wide" type="submit" style="background: linear-gradient(135deg, #a855f7, #6366f1); border:none; margin-top:10px;">Bakiyemle Satın Al & Aktif Et</button>
+    </form>
+    <p class="muted" style="font-size: 13px; margin-top: 12px;">Bakiyen yetersizse <a href="/payment" style="color: #a855f7;">Bakiye Yükle</a> sayfasından Steam / Google Play hediye kartı ile bakiyeni yükleyebilirsin.</p>
+</section>"""
+
             body = f"""<section class="hero" style="background: radial-gradient(circle at center, rgba(168, 85, 247, 0.15) 0%, transparent 70%); border-bottom: 1px solid rgba(168, 85, 247, 0.2);"><div class="eyebrow" style="color: #a855f7;">BİGA CHEAT EXCLUSIVE</div><h1>⚡ Ultra Biga Cheat<span> (CS2 Edition)</span></h1><p class="lead">Gelişmiş C++ altyapısı, anlık ESP/Ragebot, özel Velocity mimarisi ve BigaCheat damgasıyla yenilenen amiral gemimiz!</p>
 <div class="hero-actions">{download_btn}</div></section>
+{purchase_sec}
 <section class="features"><h2>Ultra Biga Cheat Özellikleri</h2><div class="feature-grid">
 <div class="feature" style="border-color: rgba(168, 85, 247, 0.3);"><span class="feature-icon">🎯</span><h3>Ragebot & Legitbot</h3><p>Mükemmel açı hesaplamalı autowall, hitchance ve silent aim yetenekleri.</p></div>
 <div class="feature" style="border-color: rgba(168, 85, 247, 0.3);"><span class="feature-icon">👁️</span><h3>Gelişmiş Visuals (ESP)</h3><p>Chams materyalleri (glow, hologram, metallic), kutu, can, silah ve bomba göstergeleri.</p></div>
@@ -2617,8 +2647,9 @@ class Handler(BaseHTTPRequestHandler):
 </div></section>
 <section class="steps"><h2>Çalıştırma Adımları</h2><div class="steps-grid">
 <div class="step"><div class="step-num" style="background: #a855f7;">1</div><h3>Steam Ayarı</h3><p>CS2 Başlatma Seçeneklerine <code>-allow_third_party_software</code> ekle.</p></div>
-<div class="step"><div class="step-num" style="background: #a855f7;">2</div><h3>Loader'ı Aç</h3><p>BigaCheat-Loader.exe dosyasını çalıştırıp hesabına giriş yap.</p></div>
-<div class="step"><div class="step-num" style="background: #a855f7;">3</div><h3>Başlat'a Bas</h3><p>Seçtiğin sürüm başlatılacak. Oyunda <code>DEL</code> (Delete) tuşuna basıp BigaCheat menüsünü aç!</p></div>
+<div class="step"><div class="step-num" style="background: #a855f7;">2</div><h3>Bakiyenle Satın Al</h3><p>Bakiye yükle ve Ultra Hile erişimini aktif et.</p></div>
+<div class="step"><div class="step-num" style="background: #a855f7;">3</div><h3>Loader'ı Aç</h3><p>BigaCheat-Loader.exe dosyasını çalıştırıp hesabına giriş yap.</p></div>
+<div class="step"><div class="step-num" style="background: #a855f7;">4</div><h3>BAŞLAT'a Bas</h3><p>Seçtiğin sürüm başlatılacak. Oyunda <code>DEL</code> (Delete) tuşuna basıp BigaCheat menüsünü aç!</p></div>
 </div></section>"""
             self.send_html(page("Ultra Biga Cheat", body, username, message=message, message_type=message_type, is_premium=is_premium, csrf_token=csrf_tok))
         elif path == "/chat":
